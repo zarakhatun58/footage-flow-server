@@ -1,5 +1,5 @@
 // utils/firebaseAdmin.js
-import { admin } from 'firebase-admin';
+import admin from 'firebase-admin';
 // import serviceAccount from '../firebase-service-account.json' with { type: "json" };
 const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
 
