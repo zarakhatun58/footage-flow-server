@@ -1,6 +1,7 @@
 // utils/firebaseAdmin.js
-import admin from 'firebase-admin';
-import serviceAccount from '../firebase-service-account.json' with { type: "json" };
+import { admin } from 'firebase-admin';
+// import serviceAccount from '../firebase-service-account.json' with { type: "json" };
+const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -18,7 +19,7 @@ export const verifyIdToken = async (idToken) => {
 
 // // Import the functions you need from the SDKs you need
 // import { initializeApp } from "firebase/app";
-// // TODO: Add SDKs for Firebase products that you want to use
+// TODO: Add SDKs for Firebase products that you want to use
 // // https://firebase.google.com/docs/web/setup#available-libraries
 
 // // Your web app's Firebase configuration
