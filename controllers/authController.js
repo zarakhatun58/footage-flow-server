@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import storyUser from '../models/User.js';
 import { verifyIdToken } from '../utils/firebaseAdmin.js';
+import { sendEmail } from '../utils/sendEmail.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 
@@ -24,12 +25,23 @@ export const register = async (req, res) => {
 
 export const login = async (req, res) => {
   const { email, password } = req.body;
+
+  console.log("Login attempt:", email, password);
+
   try {
     const user = await storyUser.findOne({ email });
-    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+    console.log("User found:", user);
+
+    if (!user || !user.password) {
+      return res.status(400).json({ error: 'Invalid credentials (no user or no password)' });
+    }
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(400).json({ error: 'Invalid credentials' });
+    console.log("Password match:", match);
+
+    if (!match) {
+      return res.status(400).json({ error: 'Invalid credentials (bad password)' });
+    }
 
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1d' });
     res.json({ token });
@@ -38,6 +50,7 @@ export const login = async (req, res) => {
     res.status(500).json({ error: 'Login failed' });
   }
 };
+
 
 export const getProfile = async (req, res) => {
   try {
@@ -50,8 +63,14 @@ export const getProfile = async (req, res) => {
 };
 
 export const logout = (req, res) => {
-  res.json({ message: 'Logout handled client-side (just delete token)' });
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'Strict',
+  });
+  res.status(200).json({ message: 'Logged out successfully' });
 };
+
 
 export const loginWithGoogle = async (req, res) => {
   const { idToken } = req.body;
@@ -96,3 +115,54 @@ export const getMe = async (req, res) => {
     profilePic: user.profilePic
   });
 };
+
+// Route: POST /api/auth/forgot-password
+export const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await storyUser.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'Email not found' });
+    }
+
+    const resetToken = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '15m' });
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    const html = `
+      <h3>Password Reset Request</h3>
+      <p>Click the link below to reset your password. This link expires in 15 minutes:</p>
+      <a href="${resetLink}">${resetLink}</a>
+    `;
+
+    await sendEmail(user.email, 'Reset Your Password', html);
+
+    res.json({ message: "Reset email sent", resetToken });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    res.status(500).json({ error: 'Error generating or sending reset token' });
+  }
+};
+
+// Route: POST /api/auth/reset-password
+export const resetPassword = async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await storyUser.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Invalid or expired token' });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    user.password = hashed;
+    await user.save();
+
+    res.json({ message: 'Password reset successfully' });
+  } catch (err) {
+    console.error('Reset password error:', err);
+    res.status(400).json({ error: 'Token invalid or expired' });
+  }
+};
+

@@ -1,4 +1,7 @@
 
 
 node_modules
+
 .env
+firebase-service-account.json
+google-creds.json

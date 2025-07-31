@@ -6,6 +6,8 @@ import dotenv from 'dotenv';
 import uploadRoutes from './routes/uploadRoutes.js';
 import storyRoutes from './routes/storyRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import emotionRoutes from './routes/emotionRoutes.js';
+import shotstackRoutes from './routes/shotstackRoutes.js';
 
 dotenv.config();
 
@@ -20,9 +22,10 @@ mongoose.connect(process.env.MONGO_URI)
 app.use('/api', uploadRoutes);
 app.use('/api', storyRoutes);
 app.use('/api/auth', authRoutes);
-
+app.use('/api', emotionRoutes);
+app.use('/api/shotstack', shotstackRoutes);
 app.get("/", (req, res) => {
     res.send("✅ Footage flow running");
 });
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT} +GROQ +Could based api added`));
