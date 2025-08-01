@@ -7,7 +7,14 @@ import speech from '@google-cloud/speech';
 
 const client = new speech.SpeechClient();
 
-// Extract transcript from uploaded audio/video file using Google STT
+// ✅ Create a credentials file at runtime from the env var
+if (process.env.GOOGLE_CREDS_JSON) {
+  const credsPath = path.resolve('./google-creds.json');
+  fs.writeFileSync(credsPath, process.env.GOOGLE_CREDS_JSON);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
+}
+
+// 🎙️ Extract transcript from uploaded audio using Google STT
 export const transcribeAudio = async (req, res) => {
   const { filename } = req.body;
   const filePath = path.resolve('uploads', filename);
@@ -20,17 +27,16 @@ export const transcribeAudio = async (req, res) => {
       content: audioBytes,
     };
     const config = {
-      encoding: 'LINEAR16',
-      sampleRateHertz: 16000,
+      encoding: 'LINEAR16',           // make sure your audio matches this
+      sampleRateHertz: 16000,         // adjust if needed
       languageCode: 'en-US',
     };
-    const request = {
-      audio,
-      config,
-    };
+    const request = { audio, config };
 
     const [response] = await client.recognize(request);
-    const transcript = response.results.map(r => r.alternatives[0].transcript).join('\n');
+    const transcript = response.results
+      .map(r => r.alternatives[0].transcript)
+      .join('\n');
 
     res.status(200).json({ transcript });
   } catch (err) {
