@@ -7,7 +7,7 @@ const MediaSchema = new mongoose.Schema({
   story: String,
   tags: [String],
   visionLabels: [String],
-  emotion: { type: String, default: 'neutral' }, // ✅ NEW
+  // emotion: { type: String, default: 'neutral' }, 
   title: String, // ✅ Optional user-defined
   description: String, // ✅ Optional user-defined
   voiceUrl: String, // ✅ Voiceover MP3 link
