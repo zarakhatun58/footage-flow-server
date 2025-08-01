@@ -1,6 +1,8 @@
 // controllers/transcribeController.js
-import { transcribeAudio } from '../utils/transcriptMock.js';
+
 import { groqGenerate } from '../utils/storyHelper.js'; // optional, only if you want to use a separate prompt for emotion/story
+import { transcribeAudio } from '../utils/transcribeAudio.js';
+
 
 export const transcribeAndAnalyze = async (req, res) => {
   try {

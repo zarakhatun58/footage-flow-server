@@ -1,9 +1,10 @@
 import { getStoryFromGroq } from '../groq/groqClient.js';
+import speech from '@google-cloud/speech';
 import Media from '../models/Media.js';
 import path from 'path';
 import fetch from 'node-fetch';
 import fs from 'fs';
-import speech from '@google-cloud/speech';
+
 
 const client = new speech.SpeechClient();
 
@@ -250,5 +251,27 @@ export const detectEmotion = async (req, res) => {
   } catch (err) {
     console.error('❌ Emotion detection failed:', err.message);
     res.status(500).json({ error: 'Failed to detect emotion' });
+  }
+};
+
+
+// GET /api/videos?search=query
+export const searchVideos = async (req, res) => {
+  try {
+    const { search } = req.query;
+    const query = search
+      ? {
+          $or: [
+            { transcript: { $regex: search, $options: 'i' } },
+            { tags: { $regex: search, $options: 'i' } },
+            { title: { $regex: search, $options: 'i' } }
+          ]
+        }
+      : {};
+
+    const videos = await Media.find(query).sort({ createdAt: -1 });
+    res.status(200).json({ videos });
+  } catch (err) {
+    res.status(500).json({ error: 'Search failed' });
   }
 };

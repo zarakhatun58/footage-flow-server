@@ -1,22 +1,23 @@
 import mongoose from "mongoose";
 
+// models/Media.js
 const MediaSchema = new mongoose.Schema({
   filename: String,
-  mediaType: { type: String, enum: ['image', 'video'], default: 'image' },
+  mediaType: String, 
   transcript: String,
-  story: String,
   tags: [String],
-  visionLabels: [String],
-  // emotion: { type: String, default: 'neutral' }, 
-  title: String, // ✅ Optional user-defined
-  description: String, // ✅ Optional user-defined
-  voiceUrl: String, // ✅ Voiceover MP3 link
-  storyUrl: String, // ✅ Generated video URL (from Shotstack)
+  emotions: [String],
+  story: String,
+  title: String,
+  description: String,
+  voiceUrl: String,
+  storyUrl: String,
   likes: { type: Number, default: 0 },
   shares: { type: Number, default: 0 },
-  emotions: [String],
+    rankScore: { type: Number, default: 0 }, 
   status: { type: String, default: 'uploaded' },
   createdAt: { type: Date, default: Date.now }
 });
+
 
 export default mongoose.model('Media', MediaSchema);

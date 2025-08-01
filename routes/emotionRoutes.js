@@ -2,7 +2,8 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { transcribeAudio } from '../utils/transcriptMock.js';
+import { transcribeAudio } from '../utils/transcribeAudio.js';
+
 
 const router = express.Router();
 

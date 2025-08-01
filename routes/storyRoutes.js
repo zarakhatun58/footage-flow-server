@@ -5,7 +5,8 @@ import {
   generateTags,
   saveStory,
   createStory,
-  handleUploadAndGenerateVideo
+  handleUploadAndGenerateVideo,
+  searchVideos
 } from '../controllers/storyController.js';
 
 const router = express.Router();
@@ -16,6 +17,6 @@ router.post('/upload-and-generate-video', handleUploadAndGenerateVideo);
 router.post('/tags', generateTags);
 router.post('/save', saveStory);
 router.post('/story', createStory);
-
+router.get('/search-videos', searchVideos);
 
 export default router;

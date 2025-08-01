@@ -2,11 +2,11 @@ import admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 import path from 'path';
 
+// ✅ Resolve the path from the env
+const configPath = path.resolve(process.env.FIREBASE_CONFIG_JSON);
+const serviceAccount = JSON.parse(readFileSync(configPath, 'utf8'));
 
-// Parse the JSON string from env
-const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG_JSON);
-
-// Fix escaped newline in private_key
+// ✅ Fix escaped newlines if needed
 if (serviceAccount.private_key) {
   serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
 }
@@ -14,6 +14,7 @@ if (serviceAccount.private_key) {
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
+
 
 export const verifyIdToken = async (idToken) => {
   try {
