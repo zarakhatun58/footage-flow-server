@@ -109,13 +109,16 @@ export const generateTags = async (req, res) => {
 
 // POST /api/story/save - Save story manually
 export const saveStory = async (req, res) => {
-  const { transcript, prompt, story, tags = [], filename = 'manual_entry', mediaType = 'image', title, description, storyUrl, voiceUrl } = req.body;
+  const { transcript, prompt, story, tags = [], filename = 'manual_entry', mediaType = 'image', title, description, storyUrl, voiceUrl} = req.body;
 
+  
   if (!transcript?.trim()) {
     return res.status(400).json({ error: 'Transcript is required' });
   }
 
   try {
+    const emotions = await getEmotionLabels(transcript); // 🧠 Detect emotion
+
     const newMedia = new Media({
       filename,
       mediaType,
@@ -126,6 +129,7 @@ export const saveStory = async (req, res) => {
       description,
       storyUrl,
       voiceUrl,
+      emotions, // 🔥 Save emotions
       createdAt: new Date()
     });
 
@@ -226,5 +230,19 @@ export const handleUploadAndGenerateVideo = async (req, res) => {
   } catch (err) {
     console.error('❌ Shotstack error:', err.message);
     res.status(500).json({ error: 'Cloud video generation failed' });
+  }
+};
+
+export const detectEmotion = async (req, res) => {
+  const { transcript } = req.body;
+  if (!transcript) return res.status(400).json({ error: 'Transcript required' });
+
+  try {
+    // Replace with your emotion detection logic or API
+    const emotionLabels = await getEmotionLabels(transcript); // pseudo method
+    res.status(200).json({ emotions: emotionLabels });
+  } catch (err) {
+    console.error('❌ Emotion detection failed:', err.message);
+    res.status(500).json({ error: 'Failed to detect emotion' });
   }
 };

@@ -17,3 +17,10 @@ http://localhost:5000/api/videos
 
 for save 
 http://localhost:5000/api/save
+
+
+Like a video:
+
+PUT /api/media/64fabc.../like
+Share a video:
+PUT /api/media/64fabc.../share

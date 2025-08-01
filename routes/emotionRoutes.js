@@ -13,7 +13,7 @@ const upload = multer({
 });
 
 // Route: POST /api/emotion
-router.post('/emotion', upload.single('file'), async (req, res) => {
+router.post('/story/emotion', upload.single('file'), async (req, res) => {
   try {
     const filePath = req.file?.path;
 

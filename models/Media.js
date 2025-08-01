@@ -12,6 +12,9 @@ const MediaSchema = new mongoose.Schema({
   description: String, // ✅ Optional user-defined
   voiceUrl: String, // ✅ Voiceover MP3 link
   storyUrl: String, // ✅ Generated video URL (from Shotstack)
+  likes: { type: Number, default: 0 },
+  shares: { type: Number, default: 0 },
+  emotions: [String],
   status: { type: String, default: 'uploaded' },
   createdAt: { type: Date, default: Date.now }
 });

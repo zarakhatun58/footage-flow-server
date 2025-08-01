@@ -8,6 +8,8 @@ import storyRoutes from './routes/storyRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import emotionRoutes from './routes/emotionRoutes.js';
 import shotstackRoutes from './routes/shotstackRoutes.js';
+import transcribeRoutes from './routes/transcribeRoutes.js';
+import shareRoutes from './routes/shareRoutes.js';
 
 dotenv.config();
 
@@ -24,6 +26,10 @@ app.use('/api', storyRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api', emotionRoutes);
 app.use('/api/shotstack', shotstackRoutes);
+app.use('/api', transcribeRoutes);
+app.use('/api/media', shareRoutes);
+
+
 app.get("/", (req, res) => {
     res.send("✅ Footage flow running");
 });
