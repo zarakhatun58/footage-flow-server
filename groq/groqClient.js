@@ -1,31 +1,49 @@
-import axios from "axios";
-
+import axios from 'axios';
 
 export const getStoryFromGroq = async (prompt, transcript) => {
-  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
+  const model = 'llama3-70b-8192';
 
-  const response = await axios.post(
-    'https://api.groq.com/openai/v1/chat/completions',
+  if (!apiKey) {
+    console.error('❌ Missing GROQ_API_KEY in environment variables.');
+    return '⚠️ Unable to generate story due to missing API key.';
+  }
+
+  const messages = [
     {
-      model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a creative story generator.',
-        },
-        {
-          role: 'user',
-          content: `Here is a transcript: ${transcript}\n\nMake a short, emotional story based on this prompt: "${prompt}"`,
-        },
-      ],
+      role: 'system',
+      content: 'You are a creative story generator.',
     },
     {
-      headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  );
+      role: 'user',
+      content: `Here is a transcript: ${transcript}\n\nMake a short, emotional story based on this prompt: "${prompt}"`,
+    },
+  ];
 
-  return response.data.choices[0].message.content;
+  try {
+    const res = await axios.post(
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        model,
+        messages,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const content = res.data.choices?.[0]?.message?.content;
+    console.log('📖 Groq story generated');
+    return content?.trim() || '⚠️ No story generated.';
+  } catch (err) {
+    if (err.response) {
+      console.error('❌ Story generation failed:', err.response.status, err.response.data);
+    } else {
+      console.error('❌ Story generation error:', err.message);
+    }
+    return '⚠️ Failed to generate story.';
+  }
 };

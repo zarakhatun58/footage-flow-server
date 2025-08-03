@@ -4,47 +4,9 @@ import Media from '../models/Media.js';
 import path from 'path';
 import fetch from 'node-fetch';
 import fs from 'fs';
+import { getEmotionLabels } from '../utils/emotion.js';
 
 
-const client = new speech.SpeechClient();
-
-// ✅ Create a credentials file at runtime from the env var
-if (process.env.GOOGLE_CREDS_JSON && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  const credsPath = path.resolve('./google-creds.json');
-  fs.writeFileSync(credsPath, process.env.GOOGLE_CREDS_JSON);
-  process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
-}
-
-// 🎙️ Extract transcript from uploaded audio using Google STT
-export const transcribeAudio = async (req, res) => {
-  const { filename } = req.body;
-  const filePath = path.resolve('uploads', filename);
-
-  try {
-    const file = fs.readFileSync(filePath);
-    const audioBytes = file.toString('base64');
-
-    const audio = {
-      content: audioBytes,
-    };
-    const config = {
-      encoding: 'LINEAR16',           // make sure your audio matches this
-      sampleRateHertz: 16000,         // adjust if needed
-      languageCode: 'en-US',
-    };
-    const request = { audio, config };
-
-    const [response] = await client.recognize(request);
-    const transcript = response.results
-      .map(r => r.alternatives[0].transcript)
-      .join('\n');
-
-    res.status(200).json({ transcript });
-  } catch (err) {
-    console.error('❌ Transcription failed:', err.message);
-    res.status(500).json({ error: 'Failed to transcribe audio' });
-  }
-};
 
 // GET all uploaded entries
 export const getAllVideos = async (req, res) => {
@@ -273,5 +235,47 @@ export const searchVideos = async (req, res) => {
     res.status(200).json({ videos });
   } catch (err) {
     res.status(500).json({ error: 'Search failed' });
+  }
+};
+
+// POST /api/story/generate-all - Generates tags, emotions, story from transcript & updates media
+export const generateTagsAndStory = async (req, res) => {
+  try {
+    const { mediaId, transcript, title } = req.body;
+
+    if (!mediaId || !transcript?.trim()) {
+      return res.status(400).json({ error: 'Media ID and transcript are required' });
+    }
+
+    // Emotion detection
+    const emotions = await getEmotionLabels(transcript);
+
+    // Tags (basic logic; can be replaced with OpenAI/GPT later)
+    const words = transcript
+      .replace(/[^\w\s]/gi, '')
+      .split(/\s+/)
+      .filter((word, i, arr) => word.length > 4 && arr.indexOf(word) === i);
+    const tags = words.slice(0, 5);
+
+    // Story (using GROQ or GPT)
+    const { story, emotion } = await getStoryFromGroq(title || 'Story Prompt', transcript);
+
+    const updated = await Media.findByIdAndUpdate(
+      mediaId,
+      {
+        $set: {
+          title: title || undefined,
+          tags,
+          story,
+          emotions: emotions || [emotion] || ['neutral']
+        }
+      },
+      { new: true }
+    );
+
+    res.status(200).json({ success: true, media: updated });
+  } catch (err) {
+    console.error('❌ Failed to generate story data:', err.message);
+    res.status(500).json({ error: 'Failed to process story' });
   }
 };

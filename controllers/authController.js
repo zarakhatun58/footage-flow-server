@@ -1,7 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import storyUser from '../models/User.js';
-import { verifyIdToken } from '../utils/firebaseAdmin.js';
 import { sendEmail } from '../utils/sendEmail.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
@@ -72,51 +71,52 @@ export const logout = (req, res) => {
 };
 
 
-export const loginWithGoogle = async (req, res) => {
-  const { idToken } = req.body;
-  const decoded = await verifyIdToken(idToken);
+// export const loginWithGoogle = async (req, res) => {
+//   const { idToken } = req.body;
+//   const decoded = await verifyIdToken(idToken);
 
-  if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+//   if (!decoded) return res.status(401).json({ error: 'Invalid token' });
 
-  const { uid, email, name, picture } = decoded;
+//   const { uid, email, name, picture } = decoded;
 
-  let user = await storyUser.findOne({ googleId: uid });
-  if (!user) {
-    user = await storyUser.create({
-      googleId: uid,
-      email,
-      username: name,
-      profilePic: picture
-    });
-  }
+//   let user = await storyUser.findOne({ googleId: uid });
+//   if (!user) {
+//     user = await storyUser.create({
+//       googleId: uid,
+//       email,
+//       username: name,
+//       profilePic: picture
+//     });
+//   }
 
-  res.json({
-    message: 'Login successful',
-    user: {
-      id: user._id,
-      email: user.email,
-      username: user.username,
-      profilePic: user.profilePic
-    }
-  });
-};
+//   res.json({
+//     message: 'Login successful',
+//     user: {
+//       id: user._id,
+//       email: user.email,
+//       username: user.username,
+//       profilePic: user.profilePic
+//     }
+//   });
+// };
 
-export const getMe = async (req, res) => {
-  const decoded = await verifyIdToken(req.headers.authorization);
-  if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+// export const getMe = async (req, res) => {
+//   const decoded = await verifyIdToken(req.headers.authorization);
+//   if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
 
-  const user = await storyUser.findOne({ googleId: decoded.uid });
-  if (!user) return res.status(404).json({ error: 'User not found' });
+//   const user = await storyUser.findOne({ googleId: decoded.uid });
+//   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  res.json({
-    id: user._id,
-    email: user.email,
-    username: user.username,
-    profilePic: user.profilePic
-  });
-};
+//   res.json({
+//     id: user._id,
+//     email: user.email,
+//     username: user.username,
+//     profilePic: user.profilePic
+//   });
+// };
 
 // Route: POST /api/auth/forgot-password
+
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
