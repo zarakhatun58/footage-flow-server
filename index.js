@@ -76,7 +76,10 @@ app.get("/", (req, res) => {
   res.send("✅ Footage flow running");
 });
 
-
+app.get('/test', (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*'); // temp for debug
+  res.send('Hello from backend!');
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT} `));
