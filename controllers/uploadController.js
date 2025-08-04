@@ -92,7 +92,7 @@ export const handleUpload = async (req, res) => {
         emotions,
         tags,
          images: mediaType === 'image' ? [
-    `${process.env.FRONTEND_URL || 'http://localhost:5000'}/uploads/${file.filename}`
+    `${process.env.FRONTEND_URL || 'https://reel-story.onrender.com'}/uploads/${file.filename}`
   ] : [],
         likes: 0,
         shares: 0,

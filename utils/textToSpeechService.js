@@ -21,7 +21,7 @@ export async function generateVoiceOver(text, outputFile = 'output.mp3') {
   const outputPath = path.join('uploads', outputFile);
   await fs.writeFile(outputPath, response.audioContent, 'binary');
 
-  const publicUrl = `${process.env.FRONTEND_URL || 'http://localhost:5000'}/uploads/${outputFile}`;
+  const publicUrl = `${process.env.FRONTEND_URL || 'https://reel-story.onrender.com'}/uploads/${outputFile}`;
   console.log('✅ Voice-over created at:', publicUrl);
   return publicUrl;
 }

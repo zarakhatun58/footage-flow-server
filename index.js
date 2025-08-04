@@ -21,19 +21,20 @@ app.use(express.json());
 
 const allowedOrigins = [
   'http://localhost:8080',              // your local frontend
-  'https://reel-story.onrender.com', 
+  'https://reel-story.onrender.com',
+  'https://reel-story.onrender.com/',
   'https://lovable.dev/projects/ad8b2352-4066-4e23-8d46-f955253e8025'
 ];
 const corsOptions = {
   origin: function (origin, callback) {
-        if (!origin || allowedOrigins.includes(origin) || origin?.includes('lovable.app')) {
+    if (!origin || allowedOrigins.includes(origin) || origin?.includes('lovable.app')) {
       callback(null, true);
     } else {
       console.error(`❌ CORS blocked from origin: ${origin}`);
       callback(new Error('❌ CORS blocked: Not allowed by server'));
     }
   },
-  methods: ['GET', 'POST','PUT','DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true,
 };
 
@@ -41,9 +42,9 @@ app.use(cors(corsOptions));
 
 
 mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('MongoDB connected'))
-    .catch((err) => console.error('MongoDB error', err));
-    
+  .then(() => console.log('MongoDB connected'))
+  .catch((err) => console.error('MongoDB error', err));
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,7 +61,7 @@ app.use('/api/files', allFileRoutes);
 
 
 app.get("/", (req, res) => {
-    res.send("✅ Footage flow running");
+  res.send("✅ Footage flow running");
 });
 
 
