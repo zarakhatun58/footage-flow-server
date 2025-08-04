@@ -13,19 +13,16 @@ const client = new textToSpeech.TextToSpeechClient();
 export async function generateVoiceOver(text, outputFile = 'output.mp3') {
   const request = {
     input: { text },
-    voice: {
-      languageCode: 'en-US',
-      ssmlGender: 'FEMALE'
-    },
-    audioConfig: {
-      audioEncoding: 'MP3'
-    },
+    voice: { languageCode: 'en-US', ssmlGender: 'FEMALE' },
+    audioConfig: { audioEncoding: 'MP3' },
   };
 
   const [response] = await client.synthesizeSpeech(request);
   const outputPath = path.join('uploads', outputFile);
   await fs.writeFile(outputPath, response.audioContent, 'binary');
 
-  console.log('✅ Voice-over MP3 created at:', outputPath);
-  return outputPath;
+  const publicUrl = `${process.env.FRONTEND_URL || 'http://localhost:5000'}/uploads/${outputFile}`;
+  console.log('✅ Voice-over created at:', publicUrl);
+  return publicUrl;
 }
+

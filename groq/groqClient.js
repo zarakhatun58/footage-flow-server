@@ -6,7 +6,7 @@ export const getStoryFromGroq = async (prompt, transcript) => {
 
   if (!apiKey) {
     console.error('❌ Missing GROQ_API_KEY in environment variables.');
-    return '⚠️ Unable to generate story due to missing API key.';
+    return { story: null, prompt };
   }
 
   const messages = [
@@ -35,15 +35,16 @@ export const getStoryFromGroq = async (prompt, transcript) => {
       }
     );
 
-    const content = res.data.choices?.[0]?.message?.content;
+    const content = res.data.choices?.[0]?.message?.content?.trim();
+
     console.log('📖 Groq story generated');
-    return content?.trim() || '⚠️ No story generated.';
+    return { story: content || null, prompt };
   } catch (err) {
     if (err.response) {
       console.error('❌ Story generation failed:', err.response.status, err.response.data);
     } else {
       console.error('❌ Story generation error:', err.message);
     }
-    return '⚠️ Failed to generate story.';
+    return { story: null, prompt };
   }
 };

@@ -5,6 +5,7 @@ import path from 'path';
 import fetch from 'node-fetch';
 import fs from 'fs';
 import { getEmotionLabels } from '../utils/emotion.js';
+import { generateVoiceOver } from '../utils/textToSpeechService.js';
 
 
 
@@ -19,7 +20,7 @@ export const getAllVideos = async (req, res) => {
   }
 };
 
-// POST /api/story/generate - Generate AI story from prompt + transcript
+// POST /api/generate - Generate AI story from prompt + transcript
 export const generateStory = async (req, res) => {
   const { prompt, transcript, filename = 'transcript_only_input', mediaType = 'video' } = req.body;
 
@@ -28,7 +29,7 @@ export const generateStory = async (req, res) => {
   }
 
   try {
-    const { story, emotion } = await getStoryFromGroq(prompt, transcript);
+    const { story, prompt: usedPrompt } = await getStoryFromGroq(prompt, transcript);
 
     if (!story || typeof story !== 'string') {
       throw new Error('Invalid story generated');
@@ -39,19 +40,21 @@ export const generateStory = async (req, res) => {
       mediaType,
       transcript,
       story,
-      emotion: emotion || 'neutral',
+      prompt: usedPrompt, // ✅ Save prompt
+      emotion: 'neutral',
       createdAt: new Date(),
     });
 
     await newVideo.save();
 
     console.log('✅ Story generated and saved with ID:', newVideo._id);
-    res.status(201).json({ success: true, story, emotion, id: newVideo._id });
+    res.status(201).json({ success: true, story, prompt: usedPrompt, id: newVideo._id });
   } catch (err) {
     console.error('❌ Error generating story:', err.message);
     res.status(500).json({ error: 'Failed to generate story' });
   }
 };
+
 
 
 // POST /api/story/tags - Generate tags from transcript
@@ -78,9 +81,9 @@ export const generateTags = async (req, res) => {
 
 // POST /api/story/save - Save story manually
 export const saveStory = async (req, res) => {
-  const { transcript, prompt, story, tags = [], filename = 'manual_entry', mediaType = 'image', title, description, storyUrl, voiceUrl} = req.body;
+  const { transcript, prompt, story, tags = [], filename = 'manual_entry', mediaType = 'image', images = [], title, description, storyUrl, voiceUrl } = req.body;
 
-  
+
   if (!transcript?.trim()) {
     return res.status(400).json({ error: 'Transcript is required' });
   }
@@ -98,6 +101,7 @@ export const saveStory = async (req, res) => {
       description,
       storyUrl,
       voiceUrl,
+      images,
       emotions, // 🔥 Save emotions
       createdAt: new Date()
     });
@@ -223,12 +227,12 @@ export const searchVideos = async (req, res) => {
     const { search } = req.query;
     const query = search
       ? {
-          $or: [
-            { transcript: { $regex: search, $options: 'i' } },
-            { tags: { $regex: search, $options: 'i' } },
-            { title: { $regex: search, $options: 'i' } }
-          ]
-        }
+        $or: [
+          { transcript: { $regex: search, $options: 'i' } },
+          { tags: { $regex: search, $options: 'i' } },
+          { title: { $regex: search, $options: 'i' } }
+        ]
+      }
       : {};
 
     const videos = await Media.find(query).sort({ createdAt: -1 });
@@ -279,3 +283,84 @@ export const generateTagsAndStory = async (req, res) => {
     res.status(500).json({ error: 'Failed to process story' });
   }
 };
+
+// POST /api/speech/generate-video
+export const generateAndRenderVideo = async (req, res) => {
+  const { storyText, images, mediaId } = req.body;
+
+  if (!storyText || !images?.length) {
+    return res.status(400).json({ error: 'Story and images are required' });
+  }
+
+  try {
+    // 1. Generate voice-over
+    const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
+    const voiceFilename = path.basename(voicePath);
+    const voiceUrl = `${process.env.BASE_URL || 'http://localhost:5000'}/uploads/${voiceFilename}`;
+
+    // 2. Send request to Shotstack
+    const response = await fetch('https://api.shotstack.io/stage/render', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.SHOTSTACK_API_KEY
+      },
+      body: JSON.stringify({
+        timeline: {
+          background: "#000000",
+          tracks: [
+            {
+              clips: images.map((img, i) => ({
+                asset: { type: "image", src: img },
+                start: i * 2,
+                length: 2,
+                transition: { in: "fade", out: "fade" }
+              }))
+            },
+            {
+              clips: [
+                {
+                  asset: { type: "audio", src: voiceUrl },
+                  start: 0,
+                  length: images.length * 2
+                }
+              ]
+            }
+          ]
+        },
+        output: { format: "mp4", resolution: "sd" }
+      })
+    });
+
+    const data = await response.json();
+    console.log('📦 Shotstack response:', JSON.stringify(data, null, 2));
+
+    const renderId = data.response?.id;
+
+    if (!renderId) {
+      console.error('❌ Shotstack did not return a render ID. Full response:', data);
+      return res.status(500).json({ error: 'Shotstack failed to return render ID', details: data });
+    }
+
+    // 3. Save media updates
+    if (mediaId) {
+      await Media.findByIdAndUpdate(mediaId, {
+        $set: {
+          voiceUrl,
+          images,
+          renderId, // ✅ Save this as well!
+          status: 'video_requested'
+        }
+      });
+    }
+
+    console.log(`✅ Video requested. Media ID: ${mediaId}, Render ID: ${renderId}`);
+    res.status(200).json({ success: true, renderId, id: mediaId });
+
+  } catch (err) {
+    console.error('❌ Video generation failed:', err.message);
+    res.status(500).json({ error: 'Video generation failed' });
+  }
+};
+
+

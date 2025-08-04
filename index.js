@@ -15,8 +15,28 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
-app.use(cors());
 app.use(express.json());
+
+const allowedOrigins = [
+  'http://localhost:8080',              // your local frontend
+  'https://reel-story.onrender.com', 
+  'https://lovable.dev/projects/ad8b2352-4066-4e23-8d46-f955253e8025'
+];
+const corsOptions = {
+  origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin) || origin?.includes('lovable.app')) {
+      callback(null, true);
+    } else {
+      console.error(`❌ CORS blocked from origin: ${origin}`);
+      callback(new Error('❌ CORS blocked: Not allowed by server'));
+    }
+  },
+  methods: ['GET', 'POST','PUT','DELETE', 'OPTIONS'],
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+
 
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('MongoDB connected'))

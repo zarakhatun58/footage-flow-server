@@ -91,6 +91,9 @@ export const handleUpload = async (req, res) => {
         transcript,
         emotions,
         tags,
+         images: mediaType === 'image' ? [
+    `${process.env.FRONTEND_URL || 'http://localhost:5000'}/uploads/${file.filename}`
+  ] : [],
         likes: 0,
         shares: 0,
         rankScore: 0,
@@ -101,28 +104,10 @@ export const handleUpload = async (req, res) => {
       uploaded.push(newMedia);
     }
 
-    // ✅ Optional: Combine images + voiceover into video using Shotstack
-    if (imageFiles.length > 0 && voiceFiles.length === 0) {
-      const imagePaths = imageFiles.map(img => img.path);
-
-      // Combine all image transcripts into one voiceover
-      const allTranscripts = await Promise.all(imagePaths.map(getImageTranscript));
-      const combinedTranscript = allTranscripts.join('. ');
-
-      // ✅ Generate voiceover from image text
-      const voicePath = await generateVoiceOver(combinedTranscript);
-
-      // 🎬 Create video with Shotstack
-      try {
-        const videoUrl = await createVideoWithVoice(imagePaths, voicePath);
-        console.log('🎬 Generated video URL:', videoUrl);
-      } catch (err) {
-        console.error('❌ Video generation failed:', err.message || err);
-      }
-    }
     res.status(200).json({ uploaded });
   } catch (error) {
     console.error('❌ Upload error:', error.message || error);
     res.status(500).json({ error: 'Upload failed.' });
   }
 };
+

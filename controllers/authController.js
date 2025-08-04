@@ -2,8 +2,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import storyUser from '../models/User.js';
 import { sendEmail } from '../utils/sendEmail.js';
+import { OAuth2Client } from 'google-auth-library';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 export const register = async (req, res) => {
   const { username, email, password } = req.body;
@@ -70,53 +72,59 @@ export const logout = (req, res) => {
   res.status(200).json({ message: 'Logged out successfully' });
 };
 
+export const loginWithGoogle = async (req, res) => {
+  const { token } = req.body;
 
-// export const loginWithGoogle = async (req, res) => {
-//   const { idToken } = req.body;
-//   const decoded = await verifyIdToken(idToken);
+  try {
+    // 1. Verify the Google token
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
 
-//   if (!decoded) return res.status(401).json({ error: 'Invalid token' });
+    const payload = ticket.getPayload();
+    if (!payload) return res.status(400).json({ error: 'Invalid Google token payload' });
 
-//   const { uid, email, name, picture } = decoded;
+    const { sub: googleId, email, name, picture } = payload;
 
-//   let user = await storyUser.findOne({ googleId: uid });
-//   if (!user) {
-//     user = await storyUser.create({
-//       googleId: uid,
-//       email,
-//       username: name,
-//       profilePic: picture
-//     });
-//   }
+    if (!email) return res.status(400).json({ error: 'Email not found in Google token' });
 
-//   res.json({
-//     message: 'Login successful',
-//     user: {
-//       id: user._id,
-//       email: user.email,
-//       username: user.username,
-//       profilePic: user.profilePic
-//     }
-//   });
-// };
+    // 2. Check if user exists
+    let user = await storyUser.findOne({ email });
 
-// export const getMe = async (req, res) => {
-//   const decoded = await verifyIdToken(req.headers.authorization);
-//   if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+    // 3. Create if not exists
+    if (!user) {
+      user = await storyUser.create({
+        googleId,
+        email,
+        username: name,
+        profilePic: picture,
+      });
+    }
 
-//   const user = await storyUser.findOne({ googleId: decoded.uid });
-//   if (!user) return res.status(404).json({ error: 'User not found' });
+    // 4. Sign your app's JWT
+    const appToken = jwt.sign(
+      { id: user._id, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
-//   res.json({
-//     id: user._id,
-//     email: user.email,
-//     username: user.username,
-//     profilePic: user.profilePic
-//   });
-// };
+    // 5. Return response
+    res.status(200).json({
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        profilePic: user.profilePic,
+      },
+      token: appToken,
+    });
 
-// Route: POST /api/auth/forgot-password
-
+  } catch (err) {
+    console.error('Google login error:', err);
+    res.status(401).json({ error: 'Google token verification failed' });
+  }
+};
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 

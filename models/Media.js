@@ -7,6 +7,7 @@ const MediaSchema = new mongoose.Schema({
   transcript: String,
   tags: [String],
   emotions: [String],
+  images: [String],
   story: String,
   title: String,
   description: String,
