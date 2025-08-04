@@ -5,7 +5,7 @@ import vision from '@google-cloud/vision';
 
 // ✅ Step 1: Create credentials file at runtime from env
 if (process.env.GOOGLE_CREDS_JSON && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  const credsPath = path.resolve('./google-creds.json');
+  const credsPath = path.resolve('./config/google-creds.json');
   fs.writeFileSync(credsPath, process.env.GOOGLE_CREDS_JSON);
   process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
 }

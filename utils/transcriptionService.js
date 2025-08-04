@@ -2,6 +2,14 @@
 import speech from '@google-cloud/speech';
 import fs from 'fs';
 
+
+if (process.env.GOOGLE_CREDS_JSON && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  const credsPath = path.resolve('./config/google-creds.json');
+  fs.writeFileSync(credsPath, process.env.GOOGLE_CREDS_JSON);
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
+}
+
+
 const client = new speech.SpeechClient();
 
 /**
