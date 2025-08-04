@@ -56,10 +56,10 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
   .catch((err) => console.error('MongoDB error', err));
 
-// ✅ Serve static uploads
-app.use('/uploads', express.static(uploadsPath));
-// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-// app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+// // ✅ Serve static uploads
+// app.use('/uploads', express.static(uploadsPath));
+ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+//  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 app.use('/api', uploadRoutes);
 app.use('/api', storyRoutes);
@@ -72,11 +72,11 @@ app.use('/api', fileRoutes);
 app.use('/api/files', allFileRoutes);
 
 
-app.get("/", (req, res) => {
-  res.send("✅ Footage flow running");
-});
+// app.get("/", (req, res) => {
+//   res.send("✅ Footage flow running");
+// });
 
-app.get('/test', (req, res) => {
+app.get('/', (req, res) => {
   res.set('Access-Control-Allow-Origin', '*'); // temp for debug
   res.send('Hello from backend!');
 });
