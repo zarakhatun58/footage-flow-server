@@ -38,7 +38,8 @@ const allowedOrigins = [
 ];
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    // if (!origin || allowedOrigins.includes(origin)) {
+     if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.lovable.app')) {
       callback(null, true);
     } else {
       console.error(`❌ CORS blocked from origin: ${origin}`);
