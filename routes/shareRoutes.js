@@ -24,7 +24,6 @@ router.post('/:id/like', async (req, res) => {
 });
 
 
-
 // Share a media post
 router.post('/:id/share', async (req, res) => {
   try {

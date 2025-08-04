@@ -8,7 +8,8 @@ import {
   handleUploadAndGenerateVideo,
   searchVideos,
   generateTagsAndStory,
-  generateAndRenderVideo
+  generateAndRenderVideo,
+  checkRenderStatus
 } from '../controllers/storyController.js';
 
 const router = express.Router();
@@ -22,6 +23,6 @@ router.post('/story', createStory);
 router.get('/search-videos', searchVideos);
 router.post('/story/generate-all', generateTagsAndStory);
 router.post('/speech/generate-video', generateAndRenderVideo);
-
+router.get('/speech/render-status/:renderId', checkRenderStatus);
 
 export default router;

@@ -296,7 +296,7 @@ export const generateAndRenderVideo = async (req, res) => {
     // 1. Generate voice-over
     const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
     const voiceFilename = path.basename(voicePath);
-    const voiceUrl = `${process.env.FRONTEND_URL || 'http://localhost:5000'}/uploads/${voiceFilename}`;
+    const voiceUrl = `${process.env.FRONTEND_URL || 'https://reel-story.onrender.com'}/uploads/${voiceFilename}`;
 
     // 2. Send request to Shotstack
     const response = await fetch('https://api.shotstack.io/stage/render', {
@@ -360,6 +360,30 @@ export const generateAndRenderVideo = async (req, res) => {
   } catch (err) {
     console.error('❌ Video generation failed:', err.message);
     res.status(500).json({ error: 'Video generation failed' });
+  }
+};
+
+// GET /api/speech/render-status/:renderId
+export const checkRenderStatus = async (req, res) => {
+  const { renderId } = req.params;
+
+  try {
+    const response = await fetch(`https://api.shotstack.io/stage/render/${renderId}`, {
+      headers: {
+        'x-api-key': process.env.SHOTSTACK_API_KEY,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+
+    res.status(200).json({
+      status: data?.response?.status,
+      url: data?.response?.url || null
+    });
+  } catch (err) {
+    console.error('❌ Error checking render status:', err.message);
+    res.status(500).json({ error: 'Failed to fetch render status' });
   }
 };
 
