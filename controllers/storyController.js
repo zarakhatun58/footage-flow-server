@@ -296,7 +296,7 @@ export const generateAndRenderVideo = async (req, res) => {
     // 1. Generate voice-over
     const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
     const voiceFilename = path.basename(voicePath);
-    const voiceUrl = `${process.env.BASE_URL || 'http://localhost:5000'}/uploads/${voiceFilename}`;
+    const voiceUrl = `${process.env.FRONTEND_URL || 'http://localhost:5000'}/uploads/${voiceFilename}`;
 
     // 2. Send request to Shotstack
     const response = await fetch('https://api.shotstack.io/stage/render', {
