@@ -20,21 +20,19 @@ const app = express();
 app.use(express.json());
 
 const allowedOrigins = [
-  'http://localhost:8080',              // your local frontend
+  'http://localhost:8080',        
   'https://reel-story.onrender.com',
-  'https://reel-story.onrender.com/',
-  'https://lovable.dev/projects/ad8b2352-4066-4e23-8d46-f955253e8025'
 ];
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || origin?.includes('lovable.app')) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       console.error(`❌ CORS blocked from origin: ${origin}`);
       callback(new Error('❌ CORS blocked: Not allowed by server'));
     }
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST','PUT','DELETE', 'OPTIONS'],
   credentials: true,
 };
 
