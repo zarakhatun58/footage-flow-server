@@ -45,6 +45,7 @@ export async function createVideoWithVoice(localImagePath, localAudioPath) {
     }
   };
 
+  try {
   const response = await axios.post(SHOTSTACK_API_URL, renderPayload, {
     headers: {
       'x-api-key': SHOTSTACK_API_KEY,
@@ -52,8 +53,15 @@ export async function createVideoWithVoice(localImagePath, localAudioPath) {
     }
   });
 
-  const renderId = response.data.response.id;
-  console.log('🎬 Shotstack render started:', renderId);
-  return renderId;
-}
+  const renderId = response.data.response?.id;
+  if (!renderId) {
+    console.error('❌ No render ID returned:', response.data);
+    throw new Error('Shotstack did not return a render ID');
+  }
 
+  return renderId;
+} catch (error) {
+  console.error('❌ Shotstack error:', error.response?.data || error.message);
+  throw error;
+}
+}
