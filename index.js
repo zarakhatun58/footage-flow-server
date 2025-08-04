@@ -56,7 +56,10 @@ mongoose.connect(process.env.MONGO_URI)
   .catch((err) => console.error('MongoDB error', err));
 
 // ✅ Serve static uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(uploadsPath));
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 app.use('/api', uploadRoutes);
 app.use('/api', storyRoutes);
 app.use('/api/auth', authRoutes);
