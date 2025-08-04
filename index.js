@@ -34,11 +34,12 @@ if (!fs.existsSync(uploadsPath)) {
 const allowedOrigins = [
   'http://localhost:8080',        
   'https://footage-to-reel.onrender.com',
+  'https://id-preview--ad8b2352-4066-4e23-8d46-f955253e8025.lovable.app'
 ];
 const corsOptions = {
   origin: function (origin, callback) {
-  if (!origin || allowedOrigins.includes(origin)) {
-    //  if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.lovable.app')) {
+  // if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.lovable.app')) {
       callback(null, true);
     } else {
       console.error(`❌ CORS blocked from origin: ${origin}`);
