@@ -337,6 +337,11 @@ export const generateAndRenderVideo = async (req, res) => {
 
     const renderId = data.response?.id;
 
+    // e.g. in /api/speech/generate-video
+    // const media = await Media.findById(mediaId);
+    // media.renderId = renderId;
+    // await media.save();
+
     if (!renderId) {
       console.error('❌ Shotstack did not return a render ID. Full response:', data);
       return res.status(500).json({ error: 'Shotstack failed to return render ID', details: data });

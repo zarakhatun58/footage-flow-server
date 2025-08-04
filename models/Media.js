@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 // models/Media.js
 const MediaSchema = new mongoose.Schema({
   filename: String,
-  mediaType: String, 
+  mediaType: String,
   transcript: String,
   tags: [String],
   emotions: [String],
@@ -13,9 +13,11 @@ const MediaSchema = new mongoose.Schema({
   description: String,
   voiceUrl: String,
   storyUrl: String,
+  renderId: String,
   likes: { type: Number, default: 0 },
   shares: { type: Number, default: 0 },
-    rankScore: { type: Number, default: 0 }, 
+  rankScore: { type: Number, default: 0 },
+  views: { type: Number, default: 0 },
   status: { type: String, default: 'uploaded' },
   createdAt: { type: Date, default: Date.now }
 });
