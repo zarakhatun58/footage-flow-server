@@ -21,7 +21,7 @@ app.use(express.json());
 
 const allowedOrigins = [
   'http://localhost:8080',        
-  'https://reel-story.onrender.com',
+  'https://footage-to-reel.onrender.com',
 ];
 const corsOptions = {
   origin: function (origin, callback) {
