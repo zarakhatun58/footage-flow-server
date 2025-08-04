@@ -13,11 +13,23 @@ import fileRoutes from './routes/fileRoutes.js';
 import allFileRoutes from './routes/allFileRoutes.js';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
+import fs from "fs";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
+
+// ✅ Move this block ABOVE any path usage
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ✅ Now this will work properly
+const uploadsPath = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+  console.log('📂 Created uploads directory');
+}
 
 const allowedOrigins = [
   'http://localhost:8080',        
@@ -43,10 +55,8 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
   .catch((err) => console.error('MongoDB error', err));
 
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
+// ✅ Serve static uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api', uploadRoutes);
 app.use('/api', storyRoutes);
 app.use('/api/auth', authRoutes);
