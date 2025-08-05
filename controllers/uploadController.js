@@ -18,8 +18,8 @@ const upload = multer({ storage });
 
 export const uploadMiddleware = upload.fields([
   { name: 'images', maxCount: 10 },
-  { name: 'video', maxCount: 2 },
-  { name: 'voiceover', maxCount: 2 }
+  { name: 'video', maxCount: 1 },
+  { name: 'voiceover', maxCount: 1}
 ]);
 
 export const generateTagsFromTranscript = async (transcript) => {
@@ -79,7 +79,7 @@ export const handleUpload = async (req, res) => {
           emotions = await getEmotionLabels(transcript);
           tags = await generateTagsFromTranscript(transcript);
         } else if (mediaType === 'video') {
-          console.warn('⚠️ Video uploaded but not processed for audio/transcript (FFmpeg skipped)');
+          console.warn('⚠️ Video uploaded but not processed for audio/transcript ');
         }
       } catch (err) {
         console.error(`❌ ${mediaType} processing failed:`, err.message || err);

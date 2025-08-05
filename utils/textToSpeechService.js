@@ -3,10 +3,14 @@ import fs from 'fs/promises';
 import path from 'path';
 
 if (process.env.GOOGLE_CREDS_JSON && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-  const credsPath = path.resolve('./config/google-creds.json');
+  const credsPath = process.env.NODE_ENV === 'production'
+    ? '/tmp/google-creds.json' // ✅ Writable on Render
+    : path.resolve('./config/google-creds.json');
+
   fs.writeFileSync(credsPath, process.env.GOOGLE_CREDS_JSON);
   process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
 }
+
 
 const client = new textToSpeech.TextToSpeechClient();
 
