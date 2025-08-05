@@ -19,7 +19,7 @@ const upload = multer({ storage });
 export const uploadMiddleware = upload.fields([
   { name: 'images', maxCount: 10 },
   { name: 'video', maxCount: 1 },
-  { name: 'voiceover', maxCount: 1}
+  { name: 'voiceover', maxCount: 1 }
 ]);
 
 export const generateTagsFromTranscript = async (transcript) => {
@@ -91,9 +91,12 @@ export const handleUpload = async (req, res) => {
         transcript,
         emotions,
         tags,
-         images: mediaType === 'image' ? [
-    `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`
-  ] : [],
+        storyUrl: mediaType === 'video'
+          ? `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`
+          : '',
+        images: mediaType === 'image' ? [
+          `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`
+        ] : [],
         likes: 0,
         shares: 0,
         rankScore: 0,
