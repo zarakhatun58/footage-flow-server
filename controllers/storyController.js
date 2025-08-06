@@ -394,11 +394,14 @@ const videoUrl = data.response?.url || null;
 // GET /api/speech/render-status/:renderId
 export const checkRenderStatus = async (req, res) => {
   const { renderId } = req.params;
-
+const apiBaseUrl =
+  process.env.NODE_ENV === 'production'
+    ? 'https://api.shotstack.io/v1/render'
+    : 'https://api.shotstack.io/stage/render';
   try {
-    const response = await fetch(`https://api.shotstack.io/stage/render/${renderId}`, {
+     const response = await fetch(`${apiBaseUrl}/${renderId}`, {
       headers: {
-        'x-api-key': '04KtNouIK6jAFcR8PFUBXyfmvzFINtfWSyeRe8gi',
+        'x-api-key': process.env.SHOTSTACK_API_KEY,
         'Content-Type': 'application/json'
       }
     });
