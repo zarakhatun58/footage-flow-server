@@ -79,7 +79,9 @@ export const handleUpload = async (req, res) => {
           emotions = await getEmotionLabels(transcript);
           tags = await generateTagsFromTranscript(transcript);
         } else if (mediaType === 'video') {
-          console.warn('⚠️ Video uploaded but not processed for audio/transcript ');
+          transcript = await transcribeAudio(filePath);
+          emotions = await getEmotionLabels(transcript);
+          tags = await generateTagsFromTranscript(transcript);
         }
       } catch (err) {
         console.error(`❌ ${mediaType} processing failed:`, err.message || err);
@@ -91,16 +93,10 @@ export const handleUpload = async (req, res) => {
         transcript,
         emotions,
         tags,
-        storyUrl: mediaType === 'video'
-          ? `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`
-          : '',
         images: mediaType === 'image' ? [
           `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`
         ] : [],
-        likes: 0,
-        shares: 0,
-        rankScore: 0,
-        status: 'uploaded'
+        status: 'processing'
       });
 
       await newMedia.save();
@@ -113,4 +109,6 @@ export const handleUpload = async (req, res) => {
     res.status(500).json({ error: 'Upload failed.' });
   }
 };
+
+
 
