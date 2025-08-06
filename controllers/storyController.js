@@ -404,7 +404,7 @@ const apiBaseUrl =
     });
 
     const data = await response.json();
-
+console.log('📦 Shotstack render status response:', JSON.stringify(data, null, 2));
     res.status(200).json({
       status: data?.response?.status,
       url: data?.response?.url || null
