@@ -50,7 +50,6 @@ export const handleUpload = async (req, res) => {
     }
 
     const uploaded = [];
-
     const imageFiles = req.files.images || [];
     const videoFiles = req.files.video || [];
     const voiceFiles = req.files.voiceover || [];
@@ -65,50 +64,70 @@ export const handleUpload = async (req, res) => {
       else if (mimeType.startsWith('image/')) mediaType = 'image';
       else mediaType = 'unknown';
 
-      let transcript = '';
-      let emotions = [];
-      let tags = [];
+      const storyUrl = mediaType === 'video'
+        ? `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`
+        : '';
 
-      try {
-        if (mediaType === 'audio') {
-          transcript = await transcribeAudio(filePath);
-          emotions = await getEmotionLabels(transcript);
-          tags = await generateTagsFromTranscript(transcript);
-        } else if (mediaType === 'image') {
-          transcript = await getImageTranscript(filePath);
-          emotions = await getEmotionLabels(transcript);
-          tags = await generateTagsFromTranscript(transcript);
-        } else if (mediaType === 'video') {
-          transcript = await transcribeAudio(filePath);
-          emotions = await getEmotionLabels(transcript);
-          tags = await generateTagsFromTranscript(transcript);
-        }
-      } catch (err) {
-        console.error(`❌ ${mediaType} processing failed:`, err.message || err);
-      }
+      const images = mediaType === 'image'
+        ? [`${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`]
+        : [];
 
+      // Save immediately with basic info
       const newMedia = new Media({
         filename: file.filename,
         mediaType,
-        transcript,
-        emotions,
-        tags,
-        images: mediaType === 'image' ? [
-          `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`
-        ] : [],
+        transcript: '',
+        emotions: [],
+        tags: [],
+        storyUrl,
+        images,
+        likes: 0,
+        shares: 0,
+        rankScore: 0,
         status: 'processing'
       });
 
       await newMedia.save();
       uploaded.push(newMedia);
+
+      // Async processing
+      (async () => {
+        try {
+          let transcript = '';
+          let emotions = [];
+          let tags = [];
+
+          if (mediaType === 'audio') {
+            transcript = await transcribeAudio(filePath);
+            emotions = await getEmotionLabels(transcript);
+            tags = await generateTagsFromTranscript(transcript);
+          } else if (mediaType === 'image') {
+            transcript = await getImageTranscript(filePath);
+            emotions = await getEmotionLabels(transcript);
+            tags = await generateTagsFromTranscript(transcript);
+          }
+
+          await Media.findByIdAndUpdate(newMedia._id, {
+            transcript,
+            emotions,
+            tags,
+            status: 'completed'
+          });
+        } catch (err) {
+          console.error(`❌ Error processing ${mediaType}:`, err);
+          await Media.findByIdAndUpdate(newMedia._id, {
+            status: 'error'
+          });
+        }
+      })(); // fire-and-forget
     }
 
-    res.status(200).json({ uploaded });
+    // ✅ Return immediately
+    return res.status(200).json({ uploaded });
   } catch (error) {
     console.error('❌ Upload error:', error.message || error);
     res.status(500).json({ error: 'Upload failed.' });
   }
 };
-
 
 
