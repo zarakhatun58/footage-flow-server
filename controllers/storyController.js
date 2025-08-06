@@ -398,7 +398,7 @@ export const checkRenderStatus = async (req, res) => {
   try {
     const response = await fetch(`https://api.shotstack.io/stage/render/${renderId}`, {
       headers: {
-        'x-api-key': `${process.env.SHOTSTACK_API_KEY}`,
+        'x-api-key': '04KtNouIK6jAFcR8PFUBXyfmvzFINtfWSyeRe8gi',
         'Content-Type': 'application/json'
       }
     });
