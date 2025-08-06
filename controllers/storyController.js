@@ -293,92 +293,94 @@ export const generateAndRenderVideo = async (req, res) => {
   }
 
   try {
-    const maxTotalDuration = 30;
+    // ✅ Optimize for fast render
     const perImageDuration = 2;
+    const maxTotalDuration = 12; // ~6 images × 2s
     const maxImages = Math.floor(maxTotalDuration / perImageDuration);
     const trimmedImages = images.slice(0, maxImages);
 
-    let voiceUrl;
-    const media = await Media.findById(mediaId);
+    // ✅ Respond immediately to frontend
+    res.status(202).json({ success: true, message: 'Render queued' });
 
-    if (media?.voiceUrl) {
-      voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}${media.voiceUrl}`;
-    } else {
-      const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
-      const voiceFilename = path.basename(voicePath);
-      voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/audio/${voiceFilename}`;
+    // ✅ Background rendering
+    process.nextTick(async () => {
+      try {
+        let voiceUrl;
+        const media = await Media.findById(mediaId);
 
-      if (media) {
-        media.voiceUrl = `/uploads/audio/${voiceFilename}`;
-        await media.save();
-      }
-    }
+        if (media?.voiceUrl) {
+          voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}${media.voiceUrl}`;
+        } else {
+          const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
+          const voiceFilename = path.basename(voicePath);
+          voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/audio/${voiceFilename}`;
 
-    // ✅ Call Shotstack API directly and wait for response
-    const response = await fetch('https://api.shotstack.io/stage/render', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.SHOTSTACK_API_KEY
-      },
-      body: JSON.stringify({
-        timeline: {
-          background: "#000000",
-          tracks: [
-            {
-              clips: trimmedImages.map((img, i) => ({
-                asset: { type: "image", src: img },
-                start: i * perImageDuration,
-                length: perImageDuration,
-                transition: { in: "fade", out: "fade" }
-              }))
-            },
-            {
-              clips: [
+          if (media) {
+            media.voiceUrl = `/uploads/audio/${voiceFilename}`;
+            await media.save();
+          }
+        }
+
+        // 🔁 Shotstack API request
+        const response = await fetch('https://api.shotstack.io/stage/render', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.SHOTSTACK_API_KEY
+          },
+          body: JSON.stringify({
+            timeline: {
+              background: "#000000",
+              tracks: [
                 {
-                  asset: { type: "audio", src: voiceUrl },
-                  start: 0,
-                  length: trimmedImages.length * perImageDuration
+                  clips: trimmedImages.map((img, i) => ({
+                    asset: { type: "image", src: img },
+                    start: i * perImageDuration,
+                    length: perImageDuration,
+                    transition: { in: "fade", out: "fade" }
+                  }))
+                },
+                {
+                  clips: [
+                    {
+                      asset: { type: "audio", src: voiceUrl },
+                      start: 0,
+                      length: trimmedImages.length * perImageDuration
+                    }
+                  ]
                 }
               ]
+            },
+            output: {
+              format: "mp4",
+              resolution: "draft" // ✅ Fastest render
             }
-          ]
-        },
-        output: {
-          format: "mp4",
-          resolution: "preview"
+          })
+        });
+
+        const data = await response.json();
+        const renderId = data?.response?.id;
+        const videoUrl = data?.response?.url || null;
+
+        if (!renderId) {
+          console.error('❌ Shotstack did not return render ID:', data);
+          return;
         }
-      })
-    });
 
-    const data = await response.json();
-    const renderId = data.response?.id;
-    const videoUrl = data.response?.url || null;
+        await Media.findByIdAndUpdate(mediaId, {
+          $set: {
+            voiceUrl,
+            images: trimmedImages,
+            storyUrl: videoUrl,
+            renderId,
+            status: 'video_requested'
+          }
+        });
 
-    if (!renderId) {
-      console.error('❌ Shotstack did not return render ID:', data);
-      return res.status(500).json({ success: false, error: 'Shotstack failed to start render' });
-    }
-
-    // ✅ Save to DB
-    await Media.findByIdAndUpdate(mediaId, {
-      $set: {
-        voiceUrl,
-        images: trimmedImages,
-        storyUrl: videoUrl,
-        renderId,
-        status: 'video_requested'
+        console.log(`✅ Video render started. Media ID: ${mediaId}, Render ID: ${renderId}`);
+      } catch (err) {
+        console.error('❌ Background render processing failed:', err.message);
       }
-    });
-
-    console.log(`✅ Video render started. Media ID: ${mediaId}, Render ID: ${renderId}`);
-
-    // ✅ Send correct format response
-    res.status(200).json({
-      success: true,
-      renderId,
-      id: mediaId,
-      storyUrl: videoUrl
     });
 
   } catch (err) {
