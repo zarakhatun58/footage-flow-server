@@ -350,10 +350,6 @@ export const generateAndRenderVideo = async (req, res) => {
         output: {
           format: "mp4",
          resolution: "preview",
-          size: {
-            width: 640,
-            height: 480
-          }
         }
       })
     });
