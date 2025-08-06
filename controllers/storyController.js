@@ -294,10 +294,29 @@ export const generateAndRenderVideo = async (req, res) => {
 
   try {
     // 1. Generate voice-over
-    const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
-    const voiceFilename = path.basename(voicePath);
-    const voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${voiceFilename}`;
+    let voiceUrl;
 
+    if (mediaId) {
+      const media = await Media.findById(mediaId);
+      if (media?.voiceUrl) {
+        // ✅ Use existing voiceUrl from manual upload
+        voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}${media.voiceUrl}`;
+
+      } else {
+        // 🧠 Generate voice from storyText
+        const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
+        const voiceFilename = path.basename(voicePath);
+        voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/audio/${voiceFilename}`;
+        // 🔄 Save new voiceUrl if it was generated
+        media.voiceUrl = `/uploads/audio/${voiceFilename}`;
+        await media.save();
+      }
+    }
+    // Cap video to 30 seconds max
+    const maxTotalDuration = 30;
+    const perImageDuration = 2;
+    const maxImages = Math.floor(maxTotalDuration / perImageDuration);
+    const trimmedImages = images.slice(0, maxImages);
     // 2. Send request to Shotstack
     const response = await fetch('https://api.shotstack.io/stage/render', {
       method: 'POST',
@@ -310,10 +329,10 @@ export const generateAndRenderVideo = async (req, res) => {
           background: "#000000",
           tracks: [
             {
-              clips: images.map((img, i) => ({
+              clips: trimmedImages.map((img, i) => ({
                 asset: { type: "image", src: img },
-                start: i * 2,
-                length: 2,
+                start: i * perImageDuration,
+                length: perImageDuration,
                 transition: { in: "fade", out: "fade" }
               }))
             },
@@ -322,13 +341,20 @@ export const generateAndRenderVideo = async (req, res) => {
                 {
                   asset: { type: "audio", src: voiceUrl },
                   start: 0,
-                  length: images.length * 2
+                  length: trimmedImages.length * perImageDuration
                 }
               ]
             }
           ]
         },
-        output: { format: "mp4", resolution: "sd" }
+        output: {
+          format: "mp4",
+         resolution: "preview",
+          size: {
+            width: 640,
+            height: 480
+          }
+        }
       })
     });
 
@@ -336,7 +362,7 @@ export const generateAndRenderVideo = async (req, res) => {
     console.log('📦 Shotstack response:', JSON.stringify(data, null, 2));
 
     const renderId = data.response?.id;
-
+const videoUrl = data.response?.url || null;
     // e.g. in /api/speech/generate-video
     // const media = await Media.findById(mediaId);
     // media.renderId = renderId;
@@ -352,15 +378,16 @@ export const generateAndRenderVideo = async (req, res) => {
       await Media.findByIdAndUpdate(mediaId, {
         $set: {
           voiceUrl,
-          images,
-          renderId, // ✅ Save this as well!
+          images: trimmedImages,
+           storyUrl: videoUrl, 
+          renderId,
           status: 'video_requested'
         }
       });
     }
 
     console.log(`✅ Video requested. Media ID: ${mediaId}, Render ID: ${renderId}`);
-    res.status(200).json({ success: true, renderId, id: mediaId });
+    res.status(200).json({ success: true, renderId, id: mediaId,  storyUrl: videoUrl  });
 
   } catch (err) {
     console.error('❌ Video generation failed:', err.message);

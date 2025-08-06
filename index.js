@@ -11,6 +11,8 @@ import transcribeRoutes from './routes/transcribeRoutes.js';
 import shareRoutes from './routes/shareRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import allFileRoutes from './routes/allFileRoutes.js';
+import audioUploadRoute from './routes/audioUploadRoutes.js';
+
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import fs from "fs";
@@ -59,10 +61,13 @@ mongoose.connect(process.env.MONGO_URI)
 
 // // ✅ Serve static uploads
 app.use('/uploads', express.static(uploadsPath));
+app.use('/uploads/audio', express.static('uploads/audio'));
+
  //app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 //  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 app.use('/api', uploadRoutes);
+app.use('/api/audio', audioUploadRoute);
 app.use('/api', storyRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api', emotionRoutes);
