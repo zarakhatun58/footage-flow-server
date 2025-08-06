@@ -72,7 +72,7 @@ export const handleUpload = async (req, res) => {
         ? [`${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`]
         : [];
 
-      // Save immediately with basic info
+      // 🔧 [CHANGED] Save initial empty media first (with processing status)
       const newMedia = new Media({
         filename: file.filename,
         mediaType,
@@ -88,46 +88,47 @@ export const handleUpload = async (req, res) => {
       });
 
       await newMedia.save();
-      uploaded.push(newMedia);
 
-      // Async processing
-      (async () => {
-        try {
-          let transcript = '';
-          let emotions = [];
-          let tags = [];
+      // 🔧 [ADDED] Blocking metadata processing before response
+      let transcript = '';
+      let emotions = [];
+      let tags = [];
 
-          if (mediaType === 'audio') {
-            transcript = await transcribeAudio(filePath);
-            emotions = await getEmotionLabels(transcript);
-            tags = await generateTagsFromTranscript(transcript);
-          } else if (mediaType === 'image') {
-            transcript = await getImageTranscript(filePath);
-            emotions = await getEmotionLabels(transcript);
-            tags = await generateTagsFromTranscript(transcript);
-          }
-
-          await Media.findByIdAndUpdate(newMedia._id, {
-            transcript,
-            emotions,
-            tags,
-            status: 'completed'
-          });
-        } catch (err) {
-          console.error(`❌ Error processing ${mediaType}:`, err);
-          await Media.findByIdAndUpdate(newMedia._id, {
-            status: 'error'
-          });
+      try {
+        if (mediaType === 'audio') {
+          transcript = await transcribeAudio(filePath);
+          emotions = await getEmotionLabels(transcript);
+          tags = await generateTagsFromTranscript(transcript);
+        } else if (mediaType === 'image') {
+          transcript = await getImageTranscript(filePath);
+          emotions = await getEmotionLabels(transcript);
+          tags = await generateTagsFromTranscript(transcript);
         }
-      })(); // fire-and-forget
+
+        // 🔧 [ADDED] Update media before returning
+        newMedia.transcript = transcript;
+        newMedia.emotions = emotions;
+        newMedia.tags = tags;
+        newMedia.status = 'completed';
+
+        await newMedia.save();
+      } catch (err) {
+        console.error(`❌ Error processing ${mediaType}:`, err);
+        newMedia.status = 'error';
+        await newMedia.save();
+      }
+
+      // 🔧 [CHANGED] Push fully updated media to response array
+      uploaded.push(newMedia);
     }
 
-    // ✅ Return immediately
+    // 🔧 [CHANGED] Return full metadata in response
     return res.status(200).json({ uploaded });
   } catch (error) {
     console.error('❌ Upload error:', error.message || error);
     res.status(500).json({ error: 'Upload failed.' });
   }
 };
+
 
 
