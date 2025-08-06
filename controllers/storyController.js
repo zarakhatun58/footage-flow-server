@@ -353,7 +353,7 @@ export const generateAndRenderVideo = async (req, res) => {
             },
             output: {
               format: "mp4",
-              resolution: "draft" // ✅ Fastest render
+              resolution: "sd"
             }
           })
         });
