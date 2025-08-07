@@ -4,7 +4,7 @@ import axios from 'axios';
 import FormData from 'form-data';
 import Media from '../models/Media.js';
 
-const API_KEY = process.env.API_VIDEO_KEY;
+const API_KEY = process.env.APIVIDEO_API_KEY;
 const BASE_URL = 'https://ws.api.video';
 
 export const generateApiVideo = async (req, res) => {
