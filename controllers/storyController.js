@@ -284,7 +284,142 @@ export const generateTagsAndStory = async (req, res) => {
   }
 };
 
+// POST /api/speech/trigger-video
+export const triggerVideoRender = async (req, res) => {
+  const { storyText, images, mediaId } = req.body;
+
+  if (!storyText || !images?.length) {
+    return res.status(400).json({ error: 'Story and images are required' });
+  }
+
+  try {
+    const media = await Media.findByIdAndUpdate(mediaId, {
+      $set: {
+        story: storyText,
+        images,
+        status: 'render_pending'
+      }
+    });
+
+    // Queue background process — worker thread, job queue, or just async call
+    setTimeout(() => generateAndRenderVideo({ storyText, images, mediaId }), 0);
+
+    res.status(202).json({
+      success: true,
+      message: 'Render job started',
+      id: mediaId
+    });
+
+  } catch (err) {
+    console.error('❌ Failed to trigger video render:', err.message);
+    res.status(500).json({ error: 'Failed to trigger render job' });
+  }
+};
+
+
 // POST /api/speech/generate-video
+// export const generateAndRenderVideo = async (req, res) => {
+//   const { storyText, images, mediaId } = req.body;
+
+//   if (!storyText || !images?.length) {
+//     return res.status(400).json({ error: 'Story and images are required' });
+//   }
+
+//   try {
+//     const perImageDuration = 2;
+//     const maxTotalDuration = 12;
+//     const maxImages = Math.floor(maxTotalDuration / perImageDuration);
+//     const trimmedImages = images.slice(0, maxImages);
+
+//     let voiceUrl;
+//     const media = await Media.findById(mediaId);
+
+//     if (media?.voiceUrl) {
+//       voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}${media.voiceUrl}`;
+//     } else {
+//       const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
+//       const voiceFilename = path.basename(voicePath);
+//       voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/audio/${voiceFilename}`;
+
+//       if (media) {
+//         media.voiceUrl = `/uploads/audio/${voiceFilename}`;
+//         await media.save();
+//       }
+//     }
+
+//     const response = await fetch('https://api.shotstack.io/stage/render', {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/json',
+//         'x-api-key': process.env.SHOTSTACK_API_KEY
+//       },
+//       body: JSON.stringify({
+//         timeline: {
+//           background: "#000000",
+//           tracks: [
+//             {
+//               clips: trimmedImages.map((img, i) => ({
+//                 asset: { type: "image", src: img },
+//                 start: i * perImageDuration,
+//                 length: perImageDuration,
+//                 transition: { in: "fade", out: "fade" }
+//               }))
+//             },
+//             {
+//               clips: [
+//                 {
+//                   asset: { type: "audio", src: voiceUrl },
+//                   start: 0,
+//                   length: trimmedImages.length * perImageDuration
+//                 }
+//               ]
+//             }
+//           ]
+//         },
+//         output: {
+//           format: "mp4",
+//           resolution: "sd"
+//         }
+//       })
+//     });
+
+//     const data = await response.json();
+//     const renderId = data?.response?.id;
+//     const videoUrl = data?.response?.url || null;
+
+//     if (!renderId) {
+//       console.error('❌ Shotstack did not return render ID:', data);
+//       return res.status(500).json({ success: false, error: 'Render ID not received' });
+//     }
+
+//     await Media.findByIdAndUpdate(mediaId, {
+//       $set: {
+//         voiceUrl,
+//         images: trimmedImages,
+//         storyUrl: videoUrl,
+//         renderId,
+//         status: 'video_requested'
+//       }
+//     });
+
+//     console.log(`✅ Video render started. Media ID: ${mediaId}, Render ID: ${renderId}`);
+
+//     // ✅ Send full response with renderId to frontend
+//     res.status(200).json({
+//       success: true,
+//       renderId,
+//       id: mediaId,
+//       storyUrl: videoUrl || null
+//     });
+
+//   } catch (err) {
+//     console.error('❌ Video generation failed:', err.message);
+//     res.status(500).json({ error: 'Video generation failed' });
+//   }
+// };
+// POST /api/speech/generate-video
+
+
 export const generateAndRenderVideo = async (req, res) => {
   const { storyText, images, mediaId } = req.body;
 
@@ -293,20 +428,29 @@ export const generateAndRenderVideo = async (req, res) => {
   }
 
   try {
-    const perImageDuration = 2;
-    const maxTotalDuration = 12;
+    const baseUrl = process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com';
+
+    // Limit video duration
+    const perImageDuration = 2; // seconds
+    const maxTotalDuration = 12; // seconds
     const maxImages = Math.floor(maxTotalDuration / perImageDuration);
     const trimmedImages = images.slice(0, maxImages);
 
+    // Construct full image URLs
+    const imageUrls = trimmedImages.map(img =>
+      img.startsWith('http') ? img : `${baseUrl}/uploads/${path.basename(img)}`
+    );
+
+    // Handle voice generation
     let voiceUrl;
     const media = await Media.findById(mediaId);
 
     if (media?.voiceUrl) {
-      voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}${media.voiceUrl}`;
+      voiceUrl = `${baseUrl}${media.voiceUrl}`;
     } else {
       const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
       const voiceFilename = path.basename(voicePath);
-      voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/audio/${voiceFilename}`;
+      voiceUrl = `${baseUrl}/uploads/audio/${voiceFilename}`;
 
       if (media) {
         media.voiceUrl = `/uploads/audio/${voiceFilename}`;
@@ -314,6 +458,7 @@ export const generateAndRenderVideo = async (req, res) => {
       }
     }
 
+    // Prepare Shotstack payload
     const response = await fetch('https://api.shotstack.io/stage/render', {
       method: 'POST',
       headers: {
@@ -325,7 +470,7 @@ export const generateAndRenderVideo = async (req, res) => {
           background: "#000000",
           tracks: [
             {
-              clips: trimmedImages.map((img, i) => ({
+              clips: imageUrls.map((img, i) => ({
                 asset: { type: "image", src: img },
                 start: i * perImageDuration,
                 length: perImageDuration,
@@ -337,7 +482,7 @@ export const generateAndRenderVideo = async (req, res) => {
                 {
                   asset: { type: "audio", src: voiceUrl },
                   start: 0,
-                  length: trimmedImages.length * perImageDuration
+                  length: imageUrls.length * perImageDuration
                 }
               ]
             }
@@ -359,10 +504,11 @@ export const generateAndRenderVideo = async (req, res) => {
       return res.status(500).json({ success: false, error: 'Render ID not received' });
     }
 
+    // Update DB
     await Media.findByIdAndUpdate(mediaId, {
       $set: {
         voiceUrl,
-        images: trimmedImages,
+        images: imageUrls,
         storyUrl: videoUrl,
         renderId,
         status: 'video_requested'
@@ -371,7 +517,6 @@ export const generateAndRenderVideo = async (req, res) => {
 
     console.log(`✅ Video render started. Media ID: ${mediaId}, Render ID: ${renderId}`);
 
-    // ✅ Send full response with renderId to frontend
     res.status(200).json({
       success: true,
       renderId,
@@ -384,8 +529,6 @@ export const generateAndRenderVideo = async (req, res) => {
     res.status(500).json({ error: 'Video generation failed' });
   }
 };
-
-
 
 
 // GET /api/speech/render-status/:renderId
