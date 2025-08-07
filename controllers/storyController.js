@@ -549,29 +549,17 @@ export const checkRenderStatus = async (req, res) => {
       }
     });
 
-    const data = await response.json();
-    const status = data?.response?.status;
+     const data = await response.json();
+
+    console.log('📦 Shotstack raw status response:', JSON.stringify(data, null, 2));
+
+    const status = data?.response?.status || null;
     const url = data?.response?.url || null;
 
-    console.log('📦 Shotstack render status response:', JSON.stringify(data, null, 2));
-
-    // ✅ If done, update DB with final URL
-    if (status === 'done' && url) {
-      await Media.findOneAndUpdate(
-        { renderId },
-        { $set: { storyUrl: url, status: 'video_done' } }
-      );
-    }
-
-    res.status(200).json({
-      status,
-      url
-    });
+    res.status(200).json({ status, url });
   } catch (err) {
     console.error('❌ Error checking render status:', err.message);
     res.status(500).json({ error: 'Failed to fetch render status' });
   }
 };
-
-
 

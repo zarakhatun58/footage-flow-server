@@ -69,7 +69,7 @@ app.use('/uploads/audio', express.static('uploads/audio'));
 
 app.use('/api', uploadRoutes);
 app.use('/api/audio', audioUploadRoute);
-// app.use('/api/fast/generate-video', generateVideoRoute);
+app.use('/api/apivideo', generateVideoRoute);
 app.use('/api', storyRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api', emotionRoutes);
