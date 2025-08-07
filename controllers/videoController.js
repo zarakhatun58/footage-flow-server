@@ -36,7 +36,7 @@ export const generateApiVideo = async (req, res) => {
         const ffmpegCmd = `ffmpeg -loop 1 -i ${imagePath} -i ${audioPath} -c:v libx264 -tune stillimage -c:a aac -b:a 192k -shortest -pix_fmt yuv420p -y ${outputVideo}`;
 
         await new Promise((resolve, reject) => {
-            exes(ffmpegCmd, (err) => {
+            exec(ffmpegCmd, (err) => {
                 if (err) return reject(err);
                 resolve();
             });
