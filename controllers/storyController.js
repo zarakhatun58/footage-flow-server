@@ -532,14 +532,17 @@ export const generateAndRenderVideo = async (req, res) => {
 
 
 // GET /api/speech/render-status/:renderId
+
 export const checkRenderStatus = async (req, res) => {
   const { renderId } = req.params;
-const apiBaseUrl =
-  process.env.NODE_ENV === 'production'
-    ? 'https://api.shotstack.io/v1/render'
-    : 'https://api.shotstack.io/stage/render';
+
+  const apiBaseUrl =
+    process.env.NODE_ENV === 'production'
+      ? 'https://api.shotstack.io/v1/render'
+      : 'https://api.shotstack.io/stage/render';
+
   try {
-     const response = await fetch(`${apiBaseUrl}/${renderId}`, {
+    const response = await fetch(`${apiBaseUrl}/${renderId}`, {
       headers: {
         'x-api-key': process.env.SHOTSTACK_API_KEY,
         'Content-Type': 'application/json'
@@ -547,15 +550,28 @@ const apiBaseUrl =
     });
 
     const data = await response.json();
-console.log('📦 Shotstack render status response:', JSON.stringify(data, null, 2));
+    const status = data?.response?.status;
+    const url = data?.response?.url || null;
+
+    console.log('📦 Shotstack render status response:', JSON.stringify(data, null, 2));
+
+    // ✅ If done, update DB with final URL
+    if (status === 'done' && url) {
+      await Media.findOneAndUpdate(
+        { renderId },
+        { $set: { storyUrl: url, status: 'video_done' } }
+      );
+    }
+
     res.status(200).json({
-      status: data?.response?.status,
-      url: data?.response?.url || null
+      status,
+      url
     });
   } catch (err) {
     console.error('❌ Error checking render status:', err.message);
     res.status(500).json({ error: 'Failed to fetch render status' });
   }
 };
+
 
 
