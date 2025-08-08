@@ -61,15 +61,13 @@ export const generateVideo = async (
 
       const command = ffmpeg();
 
-      // Add images as looped inputs
       imagePaths.forEach((img) => {
         command.input(img).inputOptions(['-loop 1', `-t ${perImageDuration}`]);
       });
 
-      // Add audio input
-      command.input(audioPath);
-
       command
+        .videoFilters('scale=trunc(iw/2)*2:trunc(ih/2)*2')
+        .input(audioPath)
         .on('start', (cmd) => console.log('FFmpeg command:', cmd))
         .on('end', () => {
           console.log('✅ Video generated at', outputPath);
