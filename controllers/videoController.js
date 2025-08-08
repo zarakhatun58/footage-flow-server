@@ -1,102 +1,87 @@
-import fs from 'fs';
 import path from 'path';
-import axios from 'axios';
-import FormData from 'form-data';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { uploadToB2 } from '../utils/uploadToB2.js'; // we already wrote this
+import { generateVideo } from '../utils/generateVideo.js'; // your FFmpeg utility
 import Media from '../models/Media.js';
-import { exec } from 'child_process';
 
-const API_KEY = process.env.APIVIDEO_API_KEY;
-const BASE_URL = 'https://ws.api.video';
+// __dirname workaround for ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
+/**
+ * Generate a video locally using FFmpeg, upload it to B2, and return a signed URL
+ */
 export const generateApiVideo = async (req, res) => {
-  const { imageName, audioName, mediaId } = req.body;
-
-  if (!imageName || !audioName || !mediaId) {
-    return res.status(400).json({ success: false, error: 'Missing image, audio, or mediaId' });
-  }
-
-  const imagePath = path.join('uploads', path.basename(imageName));
-  const audioPath = path.join('uploads/audio', path.basename(audioName));
-  const outputVideo = `uploads/generated-${Date.now()}.mp4`;
-
   try {
-    // Step 1: Create a new video container
-    const createVideoRes = await axios.post(`${BASE_URL}/videos`, {
-      title: 'Generated Video',
-    }, {
-      headers: {
-        'Authorization': `Bearer ${API_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const { imageName, audioName, mediaId } = req.body;
 
-    const videoId = createVideoRes.data.videoId;
-    if (!videoId) {
-      throw new Error('❌ Video ID not returned from api.video');
+    if (!imageName || !audioName || !mediaId) {
+      return res.status(400).json({ success: false, error: 'Missing image, audio, or mediaId' });
     }
 
-    // Step 2: Generate video using ffmpeg
-    const ffmpegCmd = `ffmpeg -loop 1 -i ${imagePath} -i ${audioPath} -c:v libx264 -tune stillimage -c:a aac -b:a 192k -shortest -pix_fmt yuv420p -y ${outputVideo}`;
-    await new Promise((resolve, reject) => {
-      exec(ffmpegCmd, (err) => {
-        if (err) return reject(err);
-        resolve();
-      });
-    });
+    // Paths for uploaded assets
+    const imagePath = path.join(__dirname, '..', 'uploads', path.basename(imageName));
+    const audioPath = path.join(__dirname, '..', 'uploads', 'audio', path.basename(audioName));
 
-    // Step 3: Upload the video file to api.video
-    const form = new FormData();
-    form.append('file', fs.createReadStream(outputVideo));
+    if (!fs.existsSync(imagePath)) {
+      return res.status(404).json({ success: false, error: 'Image not found' });
+    }
+    if (!fs.existsSync(audioPath)) {
+      return res.status(404).json({ success: false, error: 'Audio not found' });
+    }
 
-    await axios.post(`${BASE_URL}/videos/${videoId}/source`, form, {
-      headers: {
-        ...form.getHeaders(),
-        'Authorization': `Bearer ${API_KEY}`
-      }
-    });
+    // Temporary output file
+    const tempOutput = path.join(__dirname, '..', 'uploads', `temp-${Date.now()}.mp4`);
 
-    // Step 4: Save to DB
+    // Step 1 — Generate video locally
+    await generateVideo(audioPath, [imagePath], path.basename(tempOutput));
+
+    // Step 2 — Upload to Backblaze B2
+    const b2Key = `videos/${path.basename(tempOutput)}`;
+    const signedUrl = await uploadToB2(tempOutput, b2Key);
+
+    // Step 3 — Save to DB
     await Media.findByIdAndUpdate(mediaId, {
-      renderId: videoId,
-      storyUrl: `https://embed.api.video/vod/${videoId}`,
-      encodingStatus: 'processing',
+      renderId: b2Key,
+      storyUrl: signedUrl,
+      encodingStatus: 'completed',
       mediaType: 'video'
     });
 
+    // Step 4 — Send response
     res.json({
       success: true,
-      videoId,
-      playbackUrl: `https://embed.api.video/vod/${videoId}`
+      playbackUrl: signedUrl
     });
 
-    // Optional: delete the temp video file
-    fs.unlink(outputVideo, () => {});
+    // Step 5 — Clean up local temp file
+    fs.unlink(tempOutput, () => {});
   } catch (err) {
-    console.error('❌ Video generation error:', err.message);
+    console.error('❌ Video generation error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
-
+/**
+ * Refresh signed URL for an existing B2 video
+ */
 export const checkApiVideoStatus = async (req, res) => {
-  const { videoId } = req.params;
-
   try {
-    const response = await axios.get(`${BASE_URL}/videos/${videoId}`, {
-      headers: {
-        Authorization: `Bearer ${API_KEY}`
-      }
-    });
+    const { videoId } = req.params;
+    if (!videoId) {
+      return res.status(400).json({ success: false, error: 'Missing video ID' });
+    }
 
-    const video = response.data;
+    // Get a new signed URL
+    const signedUrl = await uploadToB2(null, videoId); // `uploadToB2` returns signed URL if filePath = null
+
     res.json({
-      status: video.encoding?.status,
-      videoId: video.videoId,
-      title: video.title,
-      playbackUrl: video.assets?.player
+      success: true,
+      playbackUrl: signedUrl
     });
-  } catch (error) {
-    console.error("❌ Error checking video status:", error.message);
-    res.status(500).json({ error: "Failed to fetch video status" });
+  } catch (err) {
+    console.error('❌ Error getting signed URL:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 };
