@@ -1,8 +1,8 @@
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { uploadToB2 } from '../utils/uploadToB2.js'; // we already wrote this
-import { generateVideo } from '../utils/generateVideo.js'; // your FFmpeg utility
+import { uploadToB2 } from '../utils/uploadToB2.js';
+import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
 
 // __dirname workaround for ESM
@@ -17,25 +17,47 @@ export const generateApiVideo = async (req, res) => {
     const { imageName, audioName, mediaId } = req.body;
 
     if (!imageName || !audioName || !mediaId) {
-      return res.status(400).json({ success: false, error: 'Missing image, audio, or mediaId' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Missing image, audio, or mediaId' });
     }
 
     // Paths for uploaded assets
-    const imagePath = path.join(__dirname, '..', 'uploads', path.basename(imageName));
-    const audioPath = path.join(__dirname, '..', 'uploads', 'audio', path.basename(audioName));
+    const imagePath = path.join(
+      __dirname,
+      '..',
+      'uploads',
+      path.basename(imageName)
+    );
+    const audioPath = path.join(
+      __dirname,
+      '..',
+      'uploads',
+      'audio',
+      path.basename(audioName)
+    );
 
     if (!fs.existsSync(imagePath)) {
-      return res.status(404).json({ success: false, error: 'Image not found' });
+      return res
+        .status(404)
+        .json({ success: false, error: 'Image not found' });
     }
     if (!fs.existsSync(audioPath)) {
-      return res.status(404).json({ success: false, error: 'Audio not found' });
+      return res
+        .status(404)
+        .json({ success: false, error: 'Audio not found' });
     }
 
     // Temporary output file
-    const tempOutput = path.join(__dirname, '..', 'uploads', `temp-${Date.now()}.mp4`);
+    const tempOutput = path.join(
+      __dirname,
+      '..',
+      'uploads',
+      `temp-${Date.now()}.mp4`
+    );
 
-    // Step 1 — Generate video locally
-    await generateVideo(audioPath, [imagePath], path.basename(tempOutput));
+    // Step 1 — Generate video locally (pass strings, not arrays)
+    await generateVideo(audioPath, imagePath, tempOutput);
 
     // Step 2 — Upload to Backblaze B2
     const b2Key = `videos/${path.basename(tempOutput)}`;
@@ -46,13 +68,13 @@ export const generateApiVideo = async (req, res) => {
       renderId: b2Key,
       storyUrl: signedUrl,
       encodingStatus: 'completed',
-      mediaType: 'video'
+      mediaType: 'video',
     });
 
     // Step 4 — Send response
     res.json({
       success: true,
-      playbackUrl: signedUrl
+      playbackUrl: signedUrl,
     });
 
     // Step 5 — Clean up local temp file
@@ -70,15 +92,17 @@ export const checkApiVideoStatus = async (req, res) => {
   try {
     const { videoId } = req.params;
     if (!videoId) {
-      return res.status(400).json({ success: false, error: 'Missing video ID' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Missing video ID' });
     }
 
     // Get a new signed URL
-    const signedUrl = await uploadToB2(null, videoId); // `uploadToB2` returns signed URL if filePath = null
+    const signedUrl = await uploadToB2(null, videoId);
 
     res.json({
       success: true,
-      playbackUrl: signedUrl
+      playbackUrl: signedUrl,
     });
   } catch (err) {
     console.error('❌ Error getting signed URL:', err);
