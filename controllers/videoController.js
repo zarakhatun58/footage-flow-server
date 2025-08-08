@@ -18,9 +18,10 @@ export const generateApiVideo = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing images or mediaId' });
     }
 
-    // Resolve image absolute paths
+    // Resolve image paths
     const imagePaths = imageNames.map(name => path.join(__dirname, '..', 'uploads', path.basename(name)));
 
+    // Validate images exist
     for (const imgPath of imagePaths) {
       if (!fs.existsSync(imgPath)) {
         return res.status(404).json({ success: false, error: `Image not found: ${imgPath}` });
@@ -34,7 +35,7 @@ export const generateApiVideo = async (req, res) => {
         return res.status(404).json({ success: false, error: 'Audio not found' });
       }
     } else {
-      // Generate TTS audio if none provided
+      // Generate TTS if no audio provided
       const media = await Media.findById(mediaId);
       if (!media) {
         return res.status(404).json({ success: false, error: 'Media not found for TTS' });
@@ -47,12 +48,15 @@ export const generateApiVideo = async (req, res) => {
       audioPath = ttsFilePath;
     }
 
-    // Use full path here (IMPORTANT FIX)
     const tempOutput = path.join(__dirname, '..', 'uploads', `temp-${Date.now()}.mp4`);
 
-    await generateVideo(imagePaths, audioPath, tempOutput);
+    try {
+      await generateVideo(imagePaths, audioPath, tempOutput);
+    } catch (ffmpegError) {
+      console.error('❌ Video generation failed:', ffmpegError);
+      return res.status(500).json({ success: false, error: 'Video generation failed', details: ffmpegError.message });
+    }
 
-    // Upload to B2
     const b2Key = `videos/${path.basename(tempOutput)}`;
     const signedUrl = await uploadToB2(tempOutput, b2Key);
 
@@ -65,17 +69,15 @@ export const generateApiVideo = async (req, res) => {
 
     res.json({ success: true, playbackUrl: signedUrl });
 
-    // Clean up temp video file
-    fs.unlink(tempOutput, () => {});
+    // Cleanup temp file
+    fs.unlink(tempOutput, (err) => {
+      if (err) console.warn('⚠️ Failed to delete temp video:', err);
+    });
   } catch (err) {
-    console.error('❌ Video generation error:', err);
+    console.error('❌ Unexpected server error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
-
-
-
 /**
  * Refresh signed URL for an existing B2 video
  */
