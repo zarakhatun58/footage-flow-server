@@ -1,4 +1,3 @@
-// utils/generateVideo.js
 import path from 'path';
 import fs from 'fs';
 import ffmpeg from 'fluent-ffmpeg';
@@ -10,23 +9,40 @@ if (ffmpegPath) {
 
 /**
  * Generate a video from images + audio.
- * imageUrls: array of image URLs or local paths (we take basename -> uploads/<basename>)
+ * imageUrls: array of image URLs or local paths (string also allowed)
  * audioUrl: audio URL or local path
  * outputName: output filename (e.g. "video-123.mp4")
  * perImageDuration: seconds each image is shown (default 2)
  */
-export const generateVideo = (imageUrls = [], audioUrl, outputName = `out-${Date.now()}.mp4`, perImageDuration = 2) => {
+export const generateVideo = (
+  imageUrls = [],
+  audioUrl,
+  outputName = `out-${Date.now()}.mp4`,
+  perImageDuration = 2
+) => {
   return new Promise((resolve, reject) => {
     try {
       if (!audioUrl) return reject(new Error('audioUrl is required'));
-      if (!imageUrls || imageUrls.length === 0) return reject(new Error('At least one image is required'));
+
+      // 🔹 Normalize to array
+      if (!Array.isArray(imageUrls)) {
+        imageUrls = [imageUrls];
+      }
+      if (!imageUrls.length) {
+        return reject(new Error('At least one image is required'));
+      }
 
       const audioPath = path.join(process.cwd(), 'uploads', 'audio', path.basename(audioUrl));
-      const imagePaths = imageUrls.map(u => path.join(process.cwd(), 'uploads', path.basename(u)));
+      const imagePaths = imageUrls.map(u =>
+        path.join(process.cwd(), 'uploads', path.basename(u))
+      );
 
-      // sanity checks
-      if (!fs.existsSync(audioPath)) return reject(new Error(`Audio file not found: ${audioPath}`));
-      for (const ip of imagePaths) if (!fs.existsSync(ip)) return reject(new Error(`Image file not found: ${ip}`));
+      if (!fs.existsSync(audioPath)) {
+        return reject(new Error(`Audio file not found: ${audioPath}`));
+      }
+      for (const ip of imagePaths) {
+        if (!fs.existsSync(ip)) return reject(new Error(`Image file not found: ${ip}`));
+      }
 
       const outputDir = path.join(process.cwd(), 'output');
       if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
@@ -35,25 +51,16 @@ export const generateVideo = (imageUrls = [], audioUrl, outputName = `out-${Date
 
       const command = ffmpeg();
 
-      // Add each image and loop it for perImageDuration seconds
+      // 🔹 Add each image and loop it
       imagePaths.forEach(img => {
-        command.input(img).inputOptions([`-loop 1`]); // loop input
+        command.input(img).inputOptions(['-loop 1']);
       });
 
-      // Add the audio input
+      // Add audio input
       command.input(audioPath);
 
-      // Set options and output
-      // -shortest: stop when shortest stream ends (audio length)
-      // -movflags +faststart: enable streaming playback start
       command
-        .on('start', cmd => {
-          console.log('FFmpeg command:', cmd);
-        })
-        .on('progress', progress => {
-          // optional: could emit progress to websockets/logs
-          // console.log('Processing: ', progress);
-        })
+        .on('start', cmd => console.log('FFmpeg command:', cmd))
         .on('end', () => {
           console.log('✅ Video generated at', outputPath);
           resolve(outputPath);
@@ -62,7 +69,6 @@ export const generateVideo = (imageUrls = [], audioUrl, outputName = `out-${Date
           console.error('❌ FFmpeg error:', err);
           reject(err);
         })
-        // Video/audio codecs
         .videoCodec('libx264')
         .audioCodec('aac')
         .outputOptions([
@@ -71,7 +77,6 @@ export const generateVideo = (imageUrls = [], audioUrl, outputName = `out-${Date
           '-movflags +faststart',
           '-shortest'
         ])
-        // for each image we simulated loop; to set duration we use -t on audio or rely on audio length
         .output(outputPath)
         .run();
     } catch (err) {
