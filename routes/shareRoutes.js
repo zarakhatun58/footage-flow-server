@@ -3,6 +3,8 @@ import Media from '../models/Media.js';
 
 const router = express.Router();
 
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com';
+
 const calculateRankScore = ({ likes, shares, views }) => {
   return (likes * 2) + (shares * 3) + (views || 0); // Default views to 0 if undefined
 };
@@ -52,6 +54,21 @@ router.post('/:id/view', async (req, res) => {
     res.json({ success: true, views: media.views, rankScore: media.rankScore });
   } catch (err) {
     res.status(500).json({ error: 'Failed to record view' });
+  }
+});
+
+// Generate a short URL for media by ID
+router.get('/:id/shorturl', async (req, res) => {
+  try {
+    const media = await Media.findById(req.params.id);
+    if (!media) return res.status(404).json({ error: 'Media not found' });
+
+    // Construct short URL using FRONTEND_URL and media ID
+    const shortUrl = `${FRONTEND_URL}/m/${media._id}`;
+
+    res.json({ success: true, shortUrl });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate short URL' });
   }
 });
 
