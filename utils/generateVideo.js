@@ -8,14 +8,8 @@ if (ffmpegPath) {
 }
 
 /**
- * Generate a video from images + audio.
- * imageUrls: array of image URLs or local paths (string also allowed)
- * audioUrl: audio URL or local path
- * outputName: output filename (e.g. "video-123.mp4")
- * perImageDuration: seconds each image is shown (default 2)
+ * Get audio duration in seconds
  */
-
-
 const getAudioDuration = (audioPath) => {
   return new Promise((resolve, reject) => {
     ffmpeg.ffprobe(audioPath, (err, metadata) => {
@@ -25,6 +19,14 @@ const getAudioDuration = (audioPath) => {
   });
 };
 
+/**
+ * Generate video from images + audio.
+ * 
+ * imagePaths: array of local image file paths
+ * audioPath: local audio file path
+ * outputPath: full path to output video file
+ * perImageDuration: seconds each image shows, default 2
+ */
 export const generateVideo = async (
   imagePaths,
   audioPath,
@@ -37,33 +39,30 @@ export const generateVideo = async (
         return reject(new Error('At least one image is required'));
       }
 
-      // Ensure output directory
+      // Ensure output directory exists
       const outputDir = path.dirname(outputPath);
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
       }
 
-      // Validate images
+      // Validate images exist
       for (const img of imagePaths) {
         if (!fs.existsSync(img)) {
           return reject(new Error(`Image file not found: ${img}`));
         }
       }
 
-      // Fallback audio if missing
+      // Validate or fallback audio
       if (!audioPath || !fs.existsSync(audioPath)) {
         audioPath = path.join(process.cwd(), 'assets', 'default.mp3');
         if (!fs.existsSync(audioPath)) {
-          return reject(
-            new Error('No audio found and default audio missing.')
-          );
+          return reject(new Error('No audio found and default audio missing.'));
         }
       }
 
-      // Get audio duration
       const audioDuration = await getAudioDuration(audioPath);
 
-      // Repeat images until total length >= audio length
+      // Repeat images if needed to cover full audio duration
       const neededImages = Math.ceil(audioDuration / perImageDuration);
       if (imagePaths.length < neededImages) {
         const repeats = Math.ceil(neededImages / imagePaths.length);
@@ -75,17 +74,20 @@ export const generateVideo = async (
 
       const command = ffmpeg();
 
-      // Add images
+      // Add each image input with looping and duration
       imagePaths.forEach((img) => {
         command.input(img).inputOptions(['-loop 1', `-t ${perImageDuration}`]);
       });
 
-      // Add audio
+      // Add audio input
       command.input(audioPath);
 
-      // Run ffmpeg
+      console.log('FFmpeg command input images:', imagePaths);
+      console.log('FFmpeg command audio:', audioPath);
+      console.log('FFmpeg command output:', outputPath);
+
       command
-        .on('start', (cmd) => console.log('FFmpeg:', cmd))
+        .on('start', (cmd) => console.log('FFmpeg started:', cmd))
         .on('end', () => {
           console.log('✅ Video generated at', outputPath);
           resolve(outputPath);
@@ -100,7 +102,7 @@ export const generateVideo = async (
           '-preset veryfast',
           '-pix_fmt yuv420p',
           '-movflags +faststart',
-          '-shortest'
+          '-shortest',
         ])
         .save(outputPath);
     } catch (err) {
