@@ -14,59 +14,84 @@ if (ffmpegPath) {
  * outputName: output filename (e.g. "video-123.mp4")
  * perImageDuration: seconds each image is shown (default 2)
  */
-export const generateVideo = (
-  imageUrls = [],
-  audioUrl,
-  outputName = `out-${Date.now()}.mp4`,
+
+
+const getAudioDuration = (audioPath) => {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(audioPath, (err, metadata) => {
+      if (err) return reject(err);
+      resolve(metadata.format?.duration || 0);
+    });
+  });
+};
+
+export const generateVideo = async (
+  imagePaths,
+  audioPath,
+  outputPath,
   perImageDuration = 2
 ) => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     try {
-      if (!audioUrl) return reject(new Error('audioUrl is required'));
-
-      // 🔹 Normalize to array
-      if (!Array.isArray(imageUrls)) {
-        imageUrls = [imageUrls];
-      }
-      if (!imageUrls.length) {
+      if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
         return reject(new Error('At least one image is required'));
       }
 
-      const audioPath = path.join(process.cwd(), 'uploads', 'audio', path.basename(audioUrl));
-      const imagePaths = imageUrls.map(u =>
-        path.join(process.cwd(), 'uploads', path.basename(u))
-      );
-
-      if (!fs.existsSync(audioPath)) {
-        return reject(new Error(`Audio file not found: ${audioPath}`));
-      }
-      for (const ip of imagePaths) {
-        if (!fs.existsSync(ip)) return reject(new Error(`Image file not found: ${ip}`));
+      // Ensure output directory
+      const outputDir = path.dirname(outputPath);
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
       }
 
-      const outputDir = path.join(process.cwd(), 'output');
-      if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+      // Validate images
+      for (const img of imagePaths) {
+        if (!fs.existsSync(img)) {
+          return reject(new Error(`Image file not found: ${img}`));
+        }
+      }
 
-      const outputPath = path.join(outputDir, outputName);
+      // Fallback audio if missing
+      if (!audioPath || !fs.existsSync(audioPath)) {
+        audioPath = path.join(process.cwd(), 'assets', 'default.mp3');
+        if (!fs.existsSync(audioPath)) {
+          return reject(
+            new Error('No audio found and default audio missing.')
+          );
+        }
+      }
+
+      // Get audio duration
+      const audioDuration = await getAudioDuration(audioPath);
+
+      // Repeat images until total length >= audio length
+      const neededImages = Math.ceil(audioDuration / perImageDuration);
+      if (imagePaths.length < neededImages) {
+        const repeats = Math.ceil(neededImages / imagePaths.length);
+        imagePaths = Array(repeats)
+          .fill(imagePaths)
+          .flat()
+          .slice(0, neededImages);
+      }
 
       const command = ffmpeg();
 
-      // 🔹 Add each image and loop it
-      imagePaths.forEach(img => {
-        command.input(img).inputOptions(['-loop 1']);
+      // Add images
+      imagePaths.forEach((img) => {
+        command.input(img).inputOptions(['-loop 1', `-t ${perImageDuration}`]);
       });
 
-      // Add audio input
+      // Add audio
       command.input(audioPath);
 
+      // Run ffmpeg
       command
-        .on('start', cmd => console.log('FFmpeg command:', cmd))
+        .on('start', (cmd) => console.log('FFmpeg:', cmd))
         .on('end', () => {
           console.log('✅ Video generated at', outputPath);
           resolve(outputPath);
         })
-        .on('error', err => {
-          console.error('❌ FFmpeg error:', err);
+        .on('error', (err) => {
+          console.error('❌ FFmpeg error:', err.message);
           reject(err);
         })
         .videoCodec('libx264')
@@ -77,8 +102,7 @@ export const generateVideo = (
           '-movflags +faststart',
           '-shortest'
         ])
-        .output(outputPath)
-        .run();
+        .save(outputPath);
     } catch (err) {
       reject(err);
     }
