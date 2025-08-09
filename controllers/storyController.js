@@ -6,13 +6,18 @@ import fetch from 'node-fetch';
 import fs from 'fs';
 import { getEmotionLabels } from '../utils/emotion.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
+import nlp from 'compromise';
 
 
 
 // GET all uploaded entries
 export const getAllVideos = async (req, res) => {
   try {
-    const videos = await Media.find().sort({ createdAt: -1 });
+    const videos = await Media.find({
+      status: 'completed',
+      encodingStatus: 'ready',
+    }).sort({ rankScore: -1, createdAt: -1 }); // no limit here
+
     res.status(200).json({ videos });
   } catch (err) {
     console.error('❌ Fetch videos failed:', err);
@@ -222,22 +227,73 @@ export const detectEmotion = async (req, res) => {
 
 
 // GET /api/videos?search=query
+// export const searchVideos = async (req, res) => {
+//   try {
+//     const { search } = req.query;
+//     const query = search
+//       ? {
+//         $or: [
+//           { transcript: { $regex: search, $options: 'i' } },
+//           { tags: { $regex: search, $options: 'i' } },
+//           { title: { $regex: search, $options: 'i' } }
+//         ]
+//       }
+//       : {};
+
+//     const videos = await Media.find(query).sort({ createdAt: -1 });
+//     res.status(200).json({ videos });
+//   } catch (err) {
+//     res.status(500).json({ error: 'Search failed' });
+//   }
+// };
+
 export const searchVideos = async (req, res) => {
   try {
     const { search } = req.query;
-    const query = search
-      ? {
-        $or: [
-          { transcript: { $regex: search, $options: 'i' } },
-          { tags: { $regex: search, $options: 'i' } },
-          { title: { $regex: search, $options: 'i' } }
-        ]
-      }
-      : {};
 
-    const videos = await Media.find(query).sort({ createdAt: -1 });
+    if (!search) {
+      // Return all videos if no search query provided
+      const videos = await Media.find().sort({ createdAt: -1 });
+      return res.status(200).json({ videos });
+    }
+
+    // NLP parse for emotions and tags
+    const doc = nlp(search.toLowerCase());
+
+    const emotionsList = ['joyful', 'sad', 'angry', 'nostalgic', 'happy'];
+    const tagsList = ['laughing', 'friends', 'hiking', 'dad', 'family'];
+
+    const emotions = emotionsList.filter(e => doc.has(e));
+    const tags = tagsList.filter(t => doc.has(t));
+
+    // Date parsing using chrono-node
+    let dateFilter = null;
+    const parsedDates = chrono.parse(search);
+    if (parsedDates.length) {
+      const start = parsedDates[0].start.date();
+      const end = parsedDates[0].end ? parsedDates[0].end.date() : start;
+      dateFilter = { $gte: start, $lte: end };
+    }
+
+    // Build filters array for MongoDB query
+    const filters = [];
+    filters.push({ $text: { $search: search } });
+
+    if (emotions.length) filters.push({ emotions: { $in: emotions } });
+    if (tags.length) filters.push({ tags: { $in: tags } });
+    if (dateFilter) filters.push({ createdAt: dateFilter });
+
+    const query = filters.length > 0 ? { $and: filters } : {};
+
+    // Query DB with text score sorting
+    const videos = await Media.find(
+      query,
+      { score: { $meta: 'textScore' } }
+    ).sort({ score: { $meta: 'textScore' }, createdAt: -1 });
+
     res.status(200).json({ videos });
   } catch (err) {
+    console.error('Search error:', err);
     res.status(500).json({ error: 'Search failed' });
   }
 };

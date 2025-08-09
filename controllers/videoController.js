@@ -51,7 +51,7 @@ export const generateApiVideo = async (req, res) => {
     const tempOutput = path.join(__dirname, '..', 'uploads', `temp-${Date.now()}.mp4`);
 
     try {
-      await generateVideo(imagePaths, audioPath, tempOutput);
+      await generateVideo(imagePaths, audioPath, tempOutput, 10);
     } catch (ffmpegError) {
       console.error('❌ Video generation failed:', ffmpegError);
       return res.status(500).json({ success: false, error: 'Video generation failed', details: ffmpegError.message });

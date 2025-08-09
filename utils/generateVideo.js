@@ -20,7 +20,7 @@ export const generateVideo = async (
   imagePaths,
   audioPath,
   outputPath,
-  perImageDuration = 2
+   perImageDuration = 10 
 ) => {
   return new Promise(async (resolve, reject) => {
     try {

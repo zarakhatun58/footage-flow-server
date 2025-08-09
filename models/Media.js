@@ -22,5 +22,7 @@ const MediaSchema = new mongoose.Schema({
   status: { type: String, default: 'uploaded' }, // 'uploaded', 'processing', 'completed', etc.
   createdAt: { type: Date, default: Date.now }
 });
+// Add text index for full-text search on transcript, tags, and title
+MediaSchema.index({ transcript: 'text', tags: 'text', title: 'text' });
 
 export default mongoose.model('Media', MediaSchema);
