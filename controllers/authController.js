@@ -8,25 +8,70 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 export const register = async (req, res) => {
-  const { username, email, password } = req.body;
   try {
-    const existing = await storyUser.findOne({ email });
-    if (existing) return res.status(400).json({ error: 'Email already exists' });
+    let { username, email, password } = req.body;
 
+    // 1️⃣ Ensure required fields
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+
+    // 2️⃣ Check if email already exists
+    const existing = await storyUser.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ error: "Email already exists" });
+    }
+
+    // 3️⃣ Fallback username if not provided
+    if (!username || username.trim() === "") {
+      username = email.split("@")[0] + Math.floor(Math.random() * 1000);
+    }
+
+    // 4️⃣ Hash password
     const hashed = await bcrypt.hash(password, 10);
-    const user = new storyUser({ username, email, password: hashed });
+
+    // 5️⃣ Create user
+    const user = new storyUser({
+      username,
+      email,
+      password: hashed
+    });
+
     await user.save();
 
-    res.status(201).json({ message: 'Registered successfully' });
+    // 6️⃣ Generate JWT token
+    const token = jwt.sign(
+      { id: user._id, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // 7️⃣ Send back user + token
+    res.status(201).json({
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        profilePic: user.profilePic || null
+      },
+      token
+    });
+
   } catch (err) {
-    console.error('Register error:', err);
-    res.status(500).json({ error: 'Registration failed' });
+    console.error("Register error:", err);
+
+    if (err.code === 11000 && err.keyPattern?.username) {
+      return res.status(400).json({ error: "Username already taken" });
+    }
+
+    res.status(500).json({ error: "Registration failed" });
   }
 };
 
+
+
 export const login = async (req, res) => {
   const { email, password } = req.body;
-
   console.log("Login attempt:", email, password);
 
   try {
@@ -45,12 +90,23 @@ export const login = async (req, res) => {
     }
 
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1d' });
-    res.json({ token });
+
+    // ✅ Send both token and user
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        profilePic: user.profilePic || null,
+      },
+    });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed' });
   }
 };
+
 
 
 export const getProfile = async (req, res) => {
@@ -125,16 +181,23 @@ export const loginWithGoogle = async (req, res) => {
     res.status(401).json({ error: 'Google token verification failed' });
   }
 };
+
+// 📩 Forgot Password
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
   try {
     const user = await storyUser.findOne({ email });
     if (!user) {
-      return res.status(404).json({ error: 'Email not found' });
+      return res.status(404).json({ error: "Email not found" });
     }
 
-    const resetToken = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '15m' });
+    const resetToken = jwt.sign(
+      { userId: user._id },
+      JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
     const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
     const html = `
@@ -143,34 +206,38 @@ export const forgotPassword = async (req, res) => {
       <a href="${resetLink}">${resetLink}</a>
     `;
 
-    await sendEmail(user.email, 'Reset Your Password', html);
+    await sendEmail(user.email, "Reset Your Password", html);
+
+    console.log("📩 Password reset link:", resetLink); // ✅ Debugging
 
     res.json({ message: "Reset email sent", resetToken });
   } catch (err) {
-    console.error('Forgot password error:', err);
-    res.status(500).json({ error: 'Error generating or sending reset token' });
+    console.error("Forgot password error:", err);
+    res.status(500).json({ error: "Error generating or sending reset token" });
   }
 };
 
-// Route: POST /api/auth/reset-password
+// 🔑 Reset Password
 export const resetPassword = async (req, res) => {
   const { token, newPassword } = req.body;
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET); // ✅ Matching secret
     const user = await storyUser.findById(decoded.userId);
+
     if (!user) {
-      return res.status(404).json({ error: 'Invalid or expired token' });
+      return res.status(404).json({ error: "Invalid or expired token" });
     }
 
     const hashed = await bcrypt.hash(newPassword, 10);
     user.password = hashed;
     await user.save();
 
-    res.json({ message: 'Password reset successfully' });
+    res.json({ message: "Password reset successfully" });
   } catch (err) {
-    console.error('Reset password error:', err);
-    res.status(400).json({ error: 'Token invalid or expired' });
+    console.error("Reset password error (token verify):", err);
+    res.status(400).json({ error: "Token invalid or expired" });
   }
 };
+
 

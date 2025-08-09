@@ -252,7 +252,7 @@ export const searchVideos = async (req, res) => {
     const { search } = req.query;
 
     if (!search) {
-      // Return all videos if no search query provided
+      // Return all videos sorted by creation date desc
       const videos = await Media.find().sort({ createdAt: -1 });
       return res.status(200).json({ videos });
     }
@@ -275,7 +275,7 @@ export const searchVideos = async (req, res) => {
       dateFilter = { $gte: start, $lte: end };
     }
 
-    // Build filters array for MongoDB query
+    // Build filters
     const filters = [];
     filters.push({ $text: { $search: search } });
 
@@ -285,18 +285,24 @@ export const searchVideos = async (req, res) => {
 
     const query = filters.length > 0 ? { $and: filters } : {};
 
-    // Query DB with text score sorting
-    const videos = await Media.find(
-      query,
-      { score: { $meta: 'textScore' } }
-    ).sort({ score: { $meta: 'textScore' }, createdAt: -1 });
+    // Find with textScore
+    const videos = await Media.find(query, { score: { $meta: "textScore" } })
+      .sort({ score: { $meta: "textScore" }, createdAt: -1 })
+      .lean();
 
-    res.status(200).json({ videos });
+    // Map confidence 0-100 from textScore (usually from 0 to ~5)
+    const maxScore = videos.length > 0 ? videos[0].score : 1;
+    const videosWithConfidence = videos.map(v => ({
+      ...v,
+      confidence: maxScore ? Math.round((v.score / maxScore) * 100) : 0,
+    }));
+
+    res.status(200).json({ videos: videosWithConfidence });
   } catch (err) {
     console.error('Search error:', err);
     res.status(500).json({ error: 'Search failed' });
   }
-};
+}
 
 // POST /api/story/generate-all - Generates tags, emotions, story from transcript & updates media
 export const generateTagsAndStory = async (req, res) => {
@@ -618,4 +624,5 @@ export const checkRenderStatus = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch render status' });
   }
 };
+
 
