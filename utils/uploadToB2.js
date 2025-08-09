@@ -22,7 +22,7 @@ export const uploadToB2 = async (filePath, key) => {
 
   // return a signed get URL (private by default) — expiresIn seconds from env or default
   const getCmd = new GetObjectCommand({ Bucket: bucket, Key: key });
-  const expires = Number(process.env.SIGNED_URL_EXPIRES || 3600);
+  const expires = Number(process.env.SIGNED_URL_EXPIRES || 604800);
   const signedUrl = await getSignedUrl(b2Client, getCmd, { expiresIn: expires });
 
   return signedUrl;

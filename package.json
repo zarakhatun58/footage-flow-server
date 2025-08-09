@@ -30,6 +30,7 @@
     "form-data": "^4.0.4",
     "fs": "^0.0.1-security",
     "google-auth-library": "^10.2.0",
+    "googleapis": "^155.0.1",
     "http": "^0.0.1-security",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.5",
