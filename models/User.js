@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-const userSchema = new mongoose.Schema({
+const reelUserSchema = new mongoose.Schema({
  googleId: String,
    email: { type: String, required: true, unique: true }, // ✅ email should be unique
   username: String,
@@ -8,5 +8,5 @@ const userSchema = new mongoose.Schema({
   password: String, // ← ADD THIS
   createdAt: { type: Date, default: Date.now }
 });
-export default mongoose.model('storyUser', userSchema);
+export default mongoose.model('reelUser', reelUserSchema);
 

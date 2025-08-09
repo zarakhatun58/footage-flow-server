@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import storyUser from '../models/User.js';
+import reelUser from '../models/User.js';
 import { sendEmail } from '../utils/sendEmail.js';
 import { OAuth2Client } from 'google-auth-library';
 
@@ -17,7 +17,7 @@ export const register = async (req, res) => {
     }
 
     // 2️⃣ Check if email already exists
-    const existing = await storyUser.findOne({ email });
+    const existing = await reelUser.findOne({ email });
     if (existing) {
       return res.status(400).json({ error: "Email already exists" });
     }
@@ -31,7 +31,7 @@ export const register = async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
 
     // 5️⃣ Create user
-    const user = new storyUser({
+    const user = new reelUser({
       username,
       email,
       password: hashed
@@ -75,7 +75,7 @@ export const login = async (req, res) => {
   console.log("Login attempt:", email, password);
 
   try {
-    const user = await storyUser.findOne({ email });
+    const user = await reelUser.findOne({ email });
     console.log("User found:", user);
 
     if (!user || !user.password) {
@@ -111,7 +111,7 @@ export const login = async (req, res) => {
 
 export const getProfile = async (req, res) => {
   try {
-    const user = await storyUser.findById(req.userId).select('-password');
+    const user = await reelUser.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
   } catch (err) {
@@ -146,11 +146,11 @@ export const loginWithGoogle = async (req, res) => {
     if (!email) return res.status(400).json({ error: 'Email not found in Google token' });
 
     // 2. Check if user exists
-    let user = await storyUser.findOne({ email });
+    let user = await reelUser.findOne({ email });
 
     // 3. Create if not exists
     if (!user) {
-      user = await storyUser.create({
+      user = await reelUser.create({
         googleId,
         email,
         username: name,
@@ -187,7 +187,7 @@ export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
   try {
-    const user = await storyUser.findOne({ email });
+    const user = await reelUser.findOne({ email });
     if (!user) {
       return res.status(404).json({ error: "Email not found" });
     }
@@ -223,7 +223,7 @@ export const resetPassword = async (req, res) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET); // ✅ Matching secret
-    const user = await storyUser.findById(decoded.userId);
+    const user = await reelUser.findById(decoded.userId);
 
     if (!user) {
       return res.status(404).json({ error: "Invalid or expired token" });
