@@ -12,8 +12,8 @@
   "description": "",
   "dependencies": {
     "@api.video/nodejs-sdk": "^1.10.4",
-    "@aws-sdk/client-s3": "^3.863.0",
-    "@aws-sdk/s3-request-presigner": "^3.863.0",
+    "@aws-sdk/client-s3": "^3.864.0",
+    "@aws-sdk/s3-request-presigner": "^3.864.0",
     "@google-cloud/speech": "^7.2.0",
     "@google-cloud/text-to-speech": "^6.2.0",
     "@google-cloud/vision": "^5.3.2",

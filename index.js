@@ -14,6 +14,7 @@ import allFileRoutes from './routes/allFileRoutes.js';
 import audioUploadRoute from './routes/audioUploadRoutes.js';
 import generateVideoRoute from './routes/generateVideoRoutes.js';
 import youtubeRoutes from './routes/youtubeRoutes.js';
+import engagementRoutes from './routes/engagementRoutes.js';
 
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
@@ -77,7 +78,8 @@ app.use('/api', emotionRoutes);
 app.use('/api/shotstack', shotstackRoutes);
 app.use('/api', transcribeRoutes);
 app.use('/api/youtube', youtubeRoutes);
-app.use('/api/media', shareRoutes);
+// app.use('/api/media', shareRoutes);
+app.use("/api/media", engagementRoutes);
 app.use('/api', fileRoutes);
 app.use('/api/files', allFileRoutes);
 
