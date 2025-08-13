@@ -285,41 +285,38 @@ export const checkApiVideoStatus = async (req, res) => {
   try {
     const { videoId } = req.params;
     if (!videoId) {
-      return res.status(400).json({ success: false, error: "Missing video ID" });
+      return res.status(400).json({ success: false, error: 'Missing video ID' });
     }
 
-    // Find the media record
-    const media = await Media.findById(videoId)
-      .select("renderId encodingStatus tags transcript emotions thumbnailUrl createdAt");
-
+    // Find the media in DB
+    const media = await Media.findOne({ renderId: videoId });
     if (!media) {
-      return res.status(404).json({ success: false, error: "Video not found" });
+      return res.status(404).json({ success: false, error: 'Video not found' });
     }
 
-    let playbackUrl = null;
-    if (media.renderId) {
-      try {
-        playbackUrl = await getSignedUrlFromS3(media.renderId);
-      } catch (err) {
-        console.warn("⚠️ Could not generate signed URL:", err.message);
-      }
-    }
+    // Get signed URL for playback
+    const signedUrl = await getSignedUrlFromS3(videoId);
 
     res.json({
       success: true,
-      encodingStatus: media.encodingStatus,
-      playbackUrl,
-      tags: media.tags || [],
-      transcript: media.transcript || "",
-      emotions: media.emotions || [],
-      thumbnailUrl: media.thumbnailUrl || null,
-      createdAt: media.createdAt
+      playbackUrl: signedUrl,
+      metadata: {
+        thumbnail: media.thumbnail || null,
+        transcript: media.transcript || null,
+        tags: media.tags || [],
+        emotions: media.emotions || [],
+        story: media.story || '',
+        storyUrl: media.storyUrl || '',
+        encodingStatus: media.encodingStatus || 'processing',
+        createdAt: media.createdAt
+      }
     });
   } catch (err) {
-    console.error("❌ Error in checkApiVideoStatus:", err);
+    console.error('❌ Error in /status route:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 
 export const getAllVideos = async (req, res) => {
   try {

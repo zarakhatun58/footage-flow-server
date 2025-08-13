@@ -85,6 +85,11 @@ app.get("/", (req, res) => {
   res.send("✅ Footage flow running");
 });
 
+app.use((req, res, next) => {
+  res.removeHeader("Cross-Origin-Opener-Policy");
+  next();
+});
+
 app.get('/test', (req, res) => {
   res.set('Access-Control-Allow-Origin', '*'); // temp for debug
   res.send('Hello from backend!');
