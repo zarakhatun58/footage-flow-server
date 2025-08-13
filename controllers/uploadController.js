@@ -8,6 +8,7 @@ import visionClient from '../utils/visionClient.js';
 import { transcribeAudio } from '../utils/transcriptionService.js';
 import { createVideoWithVoice } from '../utils/shotstackService.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
+import { uploadFileToS3 } from '../utils/uploadToS3.js';
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'uploads/'),
@@ -46,7 +47,7 @@ export const getImageTranscript = async (imagePath) => {
 export const handleUpload = async (req, res) => {
   try {
     if (!req.files || Object.keys(req.files).length === 0) {
-      return res.status(400).json({ error: 'No files uploaded.' });
+      return res.status(400).json({ error: "No files uploaded." });
     }
 
     const uploaded = [];
@@ -58,90 +59,81 @@ export const handleUpload = async (req, res) => {
       const filePath = file.path;
       const mimeType = file.mimetype;
 
-      let mediaType = '';
-      if (mimeType.startsWith('video/')) mediaType = 'video';
-      else if (mimeType.startsWith('audio/')) mediaType = 'audio';
-      else if (mimeType.startsWith('image/')) mediaType = 'image';
-      else mediaType = 'unknown';
+      let mediaType = "unknown";
+      if (mimeType.startsWith("video/")) mediaType = "video";
+      else if (mimeType.startsWith("audio/")) mediaType = "audio";
+      else if (mimeType.startsWith("image/")) mediaType = "image";
 
-      const storyUrl = mediaType === 'video'
-        ? `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`
-        : '';
+      const storyUrl = mediaType === "video"
+        ? `${process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com"}/uploads/${file.filename}`
+        : "";
 
-      const images = mediaType === 'image'
-        ? [`${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/${file.filename}`]
+      const images = mediaType === "image"
+        ? [`${process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com"}/uploads/${file.filename}`]
         : [];
 
-      // 🔧 [CHANGED] Save initial empty media first (with processing status)
-      // const newMedia = new Media({
-      //   filename: file.filename,
-      //   mediaType,
-      //   transcript: '',
-      //   emotions: [],
-      //   tags: [],
-      //   storyUrl,
-      //   images,
-      //   likes: 0,
-      //   shares: 0,
-      //   rankScore: 0,
-      //   status: 'processing'
-      // });
-      const newMedia = {
-        id: uploadedItem._id || mediaId,
-        name: uploadedItem.filename,
-        size: file.size,
-        type,
-        transcriptionStatus: uploadedItem.status || 'completed',
-        thumbnail: uploadedItem.images?.[0] || previewUrl,
-        transcript: uploadedItem.transcript || 'Not available',
-        tags: uploadedItem.tags.length ? uploadedItem.tags : ['Not generated'],
-        emotions: uploadedItem.emotions.length ? uploadedItem.emotions : ['Not detected'],
-        story: '',
-        storyUrl: `${BASE_URL}/uploads/${uploadedItem.filename}`,
-        images: uploadedItem.images || []
-      };
-
+      // Save media with placeholders first
+      const newMedia = new Media({
+        filename: file.filename,
+        mediaType,
+        transcript: "Not available",
+        emotions: ["Not detected"],
+        tags: ["Not generated"],
+        storyUrl,
+        images,
+        likes: 0,
+        shares: 0,
+        rankScore: 0,
+        status: "processing"
+      });
 
       await newMedia.save();
 
-      // 🔧 [ADDED] Blocking metadata processing before response
-      let transcript = '';
-      let emotions = [];
-      let tags = [];
-
       try {
-        if (mediaType === 'audio') {
+        let transcript = "";
+        let emotions = [];
+        let tags = [];
+
+        if (mediaType === "audio") {
           transcript = await transcribeAudio(filePath);
-          emotions = await getEmotionLabels(transcript);
-          tags = await generateTagsFromTranscript(transcript);
-        } else if (mediaType === 'image') {
-          transcript = await getImageTranscript(filePath);
+        } else if (mediaType === "image") {
+          const [result] = await visionClient.textDetection(filePath);
+          const detections = result.textAnnotations;
+          transcript = detections[0]?.description || "";
+        }
+
+        if (transcript) {
           emotions = await getEmotionLabels(transcript);
           tags = await generateTagsFromTranscript(transcript);
         }
 
-        // 🔧 [ADDED] Update media before returning
-        newMedia.transcript = transcript;
-        newMedia.emotions = emotions;
-        newMedia.tags = tags;
-        newMedia.status = 'completed';
+        newMedia.transcript = transcript || "Not available";
+        newMedia.emotions = emotions.length ? emotions : ["Not detected"];
+        newMedia.tags = tags.length ? tags : ["Not generated"];
+        newMedia.status = "completed";
+
+        // Special: If this is the final generated video, push to S3
+        if (mediaType === "video" && req.body.isFinal === "true") {
+          const s3Key = `final-videos/${file.filename}`;
+          const s3Url = await uploadFileToS3(filePath, s3Key);
+          newMedia.storyUrl = s3Url;
+        }
 
         await newMedia.save();
       } catch (err) {
         console.error(`❌ Error processing ${mediaType}:`, err);
-        newMedia.status = 'error';
+        newMedia.status = "error";
         await newMedia.save();
       }
 
-      // 🔧 [CHANGED] Push fully updated media to response array
       uploaded.push(newMedia);
     }
-console.log('Backend response:', result.uploaded);
+
     return res.status(200).json({ uploaded });
-    
+
   } catch (error) {
-    console.error('❌ Upload error:', error.message || error);
-    res.status(500).json({ error: 'Upload failed.' });
+    console.error("❌ Upload error:", error);
+    res.status(500).json({ error: "Upload failed." });
   }
 };
 

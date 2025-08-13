@@ -20,24 +20,28 @@ export const uploadFileToS3 = async (filePath, key) => {
   const bucketName = process.env.AWS_BUCKET_NAME;
   if (!bucketName) throw new Error("AWS_BUCKET_NAME not set in environment variables");
 
-  // Read file as a stream
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`File does not exist: ${filePath}`);
+  }
+
+  // Dynamically detect MIME type
+  const contentType = mime.lookup(filePath) || "application/octet-stream";
+
   const fileStream = fs.createReadStream(filePath);
 
   const params = {
     Bucket: bucketName,
     Key: key,
     Body: fileStream,
-    ContentType: "video/mp4" // You can make this dynamic if needed
-    // No ACL needed — bucket policy makes files public
+    ContentType: contentType // ✅ now works for mp4, jpg, png, mp3, etc.
   };
 
   try {
     await s3.send(new PutObjectCommand(params));
-
-    // Return the public URL (works because of the public bucket policy)
     return `https://${bucketName}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
   } catch (err) {
     console.error("❌ S3 Upload Error:", err);
     throw new Error("Failed to upload file to S3");
   }
 };
+
