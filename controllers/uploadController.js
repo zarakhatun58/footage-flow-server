@@ -136,9 +136,9 @@ export const handleUpload = async (req, res) => {
       // 🔧 [CHANGED] Push fully updated media to response array
       uploaded.push(newMedia);
     }
-    console.log('Backend response:', result.uploaded);
+console.log('Backend response:', result.uploaded);
     return res.status(200).json({ uploaded });
-
+    
   } catch (error) {
     console.error('❌ Upload error:', error.message || error);
     res.status(500).json({ error: 'Upload failed.' });
