@@ -48,26 +48,31 @@ export const likeMedia = async (req, res) => {
 export const shareMedia = async (req, res) => {
   try {
     const media = await Media.findById(req.params.id);
-    if (!media) return res.status(404).json({ success: false, error: "Media not found" });
+    if (!media) {
+      return res.status(404).json({ success: false, error: "Media not found" });
+    }
 
+    // Increment shares every time
     media.shares = (media.shares || 0) + 1;
     media.rankScore = calculateRankScore(media);
+
     await media.save();
 
-    // handy short link your frontend can resolve to a watch page
+    // Always generate short link — even if this is the first share
     const shortUrl = `${FRONTEND_URL}/m/${media._id}`;
 
     res.json({
       success: true,
       shares: media.shares,
       rankScore: media.rankScore,
-      shortUrl,
-      publicUrl: media.storyUrl // direct S3 URL you already store
+      shortUrl,               // ✅ guaranteed to be here
+      publicUrl: media.storyUrl
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 
 // POST /api/media/:id/view
 export const viewMedia = async (req, res) => {
@@ -125,3 +130,4 @@ export const getTrendingVideos = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+

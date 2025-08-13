@@ -23,5 +23,4 @@ router.get("/:id", getMediaById);
 router.post("/:id/like", likeMedia);
 router.post("/:id/share", shareMedia);
 router.post("/:id/view", viewCooldown, viewMedia);
-
 export default router;
