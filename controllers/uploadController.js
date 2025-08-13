@@ -73,19 +73,34 @@ export const handleUpload = async (req, res) => {
         : [];
 
       // 🔧 [CHANGED] Save initial empty media first (with processing status)
-      const newMedia = new Media({
-        filename: file.filename,
-        mediaType,
-        transcript: '',
-        emotions: [],
-        tags: [],
-        storyUrl,
-        images,
-        likes: 0,
-        shares: 0,
-        rankScore: 0,
-        status: 'processing'
-      });
+      // const newMedia = new Media({
+      //   filename: file.filename,
+      //   mediaType,
+      //   transcript: '',
+      //   emotions: [],
+      //   tags: [],
+      //   storyUrl,
+      //   images,
+      //   likes: 0,
+      //   shares: 0,
+      //   rankScore: 0,
+      //   status: 'processing'
+      // });
+      const newMedia = {
+        id: uploadedItem._id || mediaId,
+        name: uploadedItem.filename,
+        size: file.size,
+        type,
+        transcriptionStatus: uploadedItem.status || 'completed',
+        thumbnail: uploadedItem.images?.[0] || previewUrl,
+        transcript: uploadedItem.transcript || 'Not available',
+        tags: uploadedItem.tags.length ? uploadedItem.tags : ['Not generated'],
+        emotions: uploadedItem.emotions.length ? uploadedItem.emotions : ['Not detected'],
+        story: '',
+        storyUrl: `${BASE_URL}/uploads/${uploadedItem.filename}`,
+        images: uploadedItem.images || []
+      };
+
 
       await newMedia.save();
 
@@ -121,9 +136,9 @@ export const handleUpload = async (req, res) => {
       // 🔧 [CHANGED] Push fully updated media to response array
       uploaded.push(newMedia);
     }
-
-    // 🔧 [CHANGED] Return full metadata in response
+    console.log('Backend response:', result.uploaded);
     return res.status(200).json({ uploaded });
+
   } catch (error) {
     console.error('❌ Upload error:', error.message || error);
     res.status(500).json({ error: 'Upload failed.' });
