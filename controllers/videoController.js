@@ -8,6 +8,7 @@ import Media from '../models/Media.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
 import { uploadFileToS3 } from '../utils/uploadToS3.js';
 import { generateThumbnail } from '../utils/generateThumbnail.js';
+import { getSignedUrlFromS3 } from '../utils/s3Client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -284,20 +285,38 @@ export const checkApiVideoStatus = async (req, res) => {
   try {
     const { videoId } = req.params;
     if (!videoId) {
-      return res
-        .status(400)
-        .json({ success: false, error: 'Missing video ID' });
+      return res.status(400).json({ success: false, error: "Missing video ID" });
     }
 
-    // Get a new signed URL
-    const signedUrl = await uploadToB2(null, videoId);
+    // Find the media record
+    const media = await Media.findById(videoId)
+      .select("renderId encodingStatus tags transcript emotions thumbnailUrl createdAt");
+
+    if (!media) {
+      return res.status(404).json({ success: false, error: "Video not found" });
+    }
+
+    let playbackUrl = null;
+    if (media.renderId) {
+      try {
+        playbackUrl = await getSignedUrlFromS3(media.renderId);
+      } catch (err) {
+        console.warn("⚠️ Could not generate signed URL:", err.message);
+      }
+    }
 
     res.json({
       success: true,
-      playbackUrl: signedUrl,
+      encodingStatus: media.encodingStatus,
+      playbackUrl,
+      tags: media.tags || [],
+      transcript: media.transcript || "",
+      emotions: media.emotions || [],
+      thumbnailUrl: media.thumbnailUrl || null,
+      createdAt: media.createdAt
     });
   } catch (err) {
-    console.error('❌ Error getting signed URL:', err);
+    console.error("❌ Error in checkApiVideoStatus:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 };

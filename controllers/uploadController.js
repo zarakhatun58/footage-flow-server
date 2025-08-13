@@ -137,9 +137,7 @@ export const getImageTranscript = async (imagePath) => {
 //   }
 // };
 
-const API_PUBLIC_URL = process.env.API_PUBLIC_URL 
-  || process.env.BACKEND_URL
-  || 'http://localhost:5000';
+const API_PUBLIC_URL = process.env.API_PUBLIC_URL || 'http://localhost:5000';
 
 export const handleUpload = async (req, res) => {
   try {
