@@ -4,6 +4,7 @@ import {
   getMediaById,
   getAllVideos,
   likeMedia,
+  getShortUrl,
   shareMedia,
   viewMedia,
   getRankedVideos,
@@ -23,4 +24,6 @@ router.get("/:id", getMediaById);
 router.post("/:id/like", likeMedia);
 router.post("/:id/share", shareMedia);
 router.post("/:id/view", viewCooldown, viewMedia);
+router.get('/:id/shorturl', getShortUrl);
+
 export default router;

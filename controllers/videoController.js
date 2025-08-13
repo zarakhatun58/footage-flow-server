@@ -7,6 +7,7 @@ import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
 import { uploadFileToS3 } from '../utils/uploadToS3.js';
+import { generateThumbnail } from '../utils/generateThumbnail.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -85,7 +86,6 @@ const __dirname = path.dirname(__filename);
  * 
  * aws s3  Refresh signed URL for an existing  video
  */
-
 export const generateApiVideo = async (req, res) => {
   try {
     const { imageNames, audioName, mediaId } = req.body;
@@ -94,18 +94,18 @@ export const generateApiVideo = async (req, res) => {
       return res.status(400).json({ success: false, error: "Missing images or mediaId" });
     }
 
-    // Resolve image paths
+    // 1️⃣ Resolve image paths
     const imagePaths = imageNames.map(name =>
       path.join(__dirname, "..", "uploads", path.basename(name))
     );
 
-    // Check images exist
     for (const imgPath of imagePaths) {
       if (!fs.existsSync(imgPath)) {
         return res.status(404).json({ success: false, error: `Image not found: ${imgPath}` });
       }
     }
 
+    // 2️⃣ Get audio path or auto-generate TTS
     let audioPath;
     if (audioName) {
       audioPath = path.join(__dirname, "..", "uploads", "audio", path.basename(audioName));
@@ -119,48 +119,68 @@ export const generateApiVideo = async (req, res) => {
       }
       const textToSpeak = media.story || media.description || "Hello world";
       const ttsFileName = `tts-${mediaId}.mp3`;
-      const ttsFilePath = path.join(__dirname, "..", "uploads", "audio", ttsFileName);
-
+      audioPath = path.join(__dirname, "..", "uploads", "audio", ttsFileName);
       await generateVoiceOver(textToSpeak, ttsFileName);
-      audioPath = ttsFilePath;
     }
 
-    // Temporary video path
+    // 3️⃣ Generate temp video
     const tempOutput = path.join(__dirname, "..", "uploads", `temp-${Date.now()}.mp4`);
+    await generateVideo(imagePaths, audioPath, tempOutput, 10);
 
-    try {
-      await generateVideo(imagePaths, audioPath, tempOutput, 10);
-    } catch (err) {
-      console.error("❌ Video generation failed:", err);
-      return res.status(500).json({ success: false, error: "Video generation failed" });
-    }
+    // 4️⃣ Generate thumbnail
+    const localThumbPath = path.join(
+      path.dirname(tempOutput),
+      `thumb-${path.basename(tempOutput, ".mp4")}.jpg`
+    );
+    await generateThumbnail(tempOutput, localThumbPath);
 
-    // Upload to S3
-    const s3Key = `videos/${path.basename(tempOutput)}`;
-    const publicUrl = await uploadFileToS3(tempOutput, s3Key);
+    // 5️⃣ Upload video & thumbnail to S3
+    const s3VideoKey = `videos/${path.basename(tempOutput)}`;
+    const videoUrl = await uploadFileToS3(tempOutput, s3VideoKey);
+    const s3ThumbKey = `thumbnails/${path.basename(localThumbPath)}`;
+    const thumbUrl = await uploadFileToS3(localThumbPath, s3ThumbKey);
 
-    // Save in DB
+    // 6️⃣ AI: Transcript, Tags, Emotions
+    const transcript = await generateTranscript(tempOutput);
+    const tags = await generateTags(transcript);
+    const emotions = await detectEmotions(transcript);
+
+    // 7️⃣ Save everything in DB + auto short URL
+    const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
+    const shortUrl = `${FRONTEND_URL}/m/${mediaId}`;
+
     await Media.findByIdAndUpdate(mediaId, {
-      renderId: s3Key,
-      storyUrl: publicUrl,
+      storyUrl: videoUrl,
+      thumbnailUrl: thumbUrl,
+      transcript,
+      tags,
+      emotions,
       encodingStatus: "completed",
       mediaType: "video",
+      shares: 1, // auto-count as shared
       createdAt: new Date(),
     });
 
-    res.json({ success: true, playbackUrl: publicUrl });
+    // 8️⃣ Cleanup temp files
+    fs.unlinkSync(tempOutput);
+    fs.unlinkSync(localThumbPath);
 
-    // Cleanup
-    fs.unlink(tempOutput, (err) => {
-      if (err) console.warn("⚠️ Failed to delete temp file:", err);
+    // 9️⃣ Respond with everything ready for sharing
+    res.json({
+      success: true,
+      videoUrl,
+      thumbnailUrl: thumbUrl,
+      transcript,
+      tags,
+      emotions,
+      shortUrl
     });
 
   } catch (err) {
-    console.error("❌ Server error:", err);
+    console.error("❌ Video generation failed:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
 
 
 // export const generateApiVideo = async (req, res) => {

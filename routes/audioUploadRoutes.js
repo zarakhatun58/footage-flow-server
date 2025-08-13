@@ -49,6 +49,9 @@ router.post('/:mediaId', upload.single('file'), async (req, res) => {
   }
 });
 
+//generate audio
+const API_PUBLIC_URL = process.env.API_PUBLIC_URL || 'http://localhost:5000';
+
 router.post('/generate-audio/:mediaId', async (req, res) => {
   const { mediaId } = req.params;
   const { text } = req.body;
@@ -58,7 +61,7 @@ router.post('/generate-audio/:mediaId', async (req, res) => {
   }
 
   try {
-    // Generate audio file and get relative path like '/uploads/voice-123.mp3'
+    // Generate audio
     const audioRelativePath = await generateVoiceOver(text, `voice-${mediaId}.mp3`);
 
     // Find the media document
@@ -67,12 +70,12 @@ router.post('/generate-audio/:mediaId', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Media not found' });
     }
 
-    // Save relative path to DB
+    // Save path in DB
     media.voiceUrl = audioRelativePath;
     await media.save();
 
-    // Construct public URL to send back
-    const publicUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}${audioRelativePath}`;
+    // ✅ Serve from backend
+    const publicUrl = `${API_PUBLIC_URL}${audioRelativePath}`;
 
     res.json({ success: true, audioUrl: publicUrl });
   } catch (error) {
@@ -80,5 +83,6 @@ router.post('/generate-audio/:mediaId', async (req, res) => {
     res.status(500).json({ success: false, error: 'Failed to generate audio' });
   }
 });
+
 
 export default router;

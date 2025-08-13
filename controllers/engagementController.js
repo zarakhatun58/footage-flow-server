@@ -131,3 +131,25 @@ export const getTrendingVideos = async (req, res) => {
   }
 };
 
+
+
+export const getShortUrl = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const media = await Media.findById(id).select('storyUrl');
+    if (!media) {
+      return res.status(404).json({ success: false, error: 'Media not found' });
+    }
+
+    // Short link to your frontend watch page (e.g. /m/:id)
+    const shortUrl = `${FRONTEND_URL}/m/${id}`;
+
+    return res.json({
+      success: true,
+      shortUrl,
+      publicUrl: media.storyUrl || null,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
