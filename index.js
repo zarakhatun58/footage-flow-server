@@ -23,6 +23,7 @@ const app = express();
 
 app.use(express.json());
 
+
 // ✅ Move this block ABOVE any path usage
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +44,7 @@ const corsOptions = {
   origin: function (origin, callback) {
   // if (!origin || allowedOrigins.includes(origin)) {
     if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.lovable.app')) {
+      
       callback(null, true);
     } else {
       console.error(`❌ CORS blocked from origin: ${origin}`);
@@ -55,6 +57,10 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+app.use((req, res, next) => {
+  res.removeHeader("Cross-Origin-Opener-Policy");
+  next();
+});
 
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
@@ -63,9 +69,6 @@ mongoose.connect(process.env.MONGO_URI)
 // // ✅ Serve static uploads
 app.use('/uploads', express.static(uploadsPath));
 app.use('/uploads/audio', express.static('uploads/audio'));
-// app.use('/output', express.static(path.resolve('output')));
- //app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-//  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 app.use('/api', uploadRoutes);
 app.use('/api/audio', audioUploadRoute);
@@ -80,15 +83,13 @@ app.use("/api/media", engagementRoutes);
 app.use('/api', fileRoutes);
 app.use('/api/files', allFileRoutes);
 
-
+app.use((req, res) => {
+  res.status(404).json({ success: false, error: 'Route not found' });
+});
 app.get("/", (req, res) => {
   res.send("✅ Footage flow running");
 });
 
-app.use((req, res, next) => {
-  res.removeHeader("Cross-Origin-Opener-Policy");
-  next();
-});
 
 app.get('/test', (req, res) => {
   res.set('Access-Control-Allow-Origin', '*'); // temp for debug
