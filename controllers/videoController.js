@@ -106,18 +106,32 @@ export const generateApiVideo = async (req, res) => {
       }
     }
 
-    // 2️⃣ Get audio path or auto-generate TTS
+    // 2️⃣ Always check DB for correct audio (overrides frontend value) 🔹 UPDATED
+    const media = await Media.findById(mediaId);
+    if (!media) {
+      return res.status(404).json({ success: false, error: "Media not found" });
+    }
+
     let audioPath;
-    if (audioName) {
-      audioPath = path.join(__dirname, "..", "uploads", "audio", path.basename(audioName));
+    if (media.voiceUrl) {
+      // ✅ Use stored voiceUrl path
+      const storedAudioName = path.basename(media.voiceUrl);
+      audioPath = path.join(__dirname, "..", "uploads", "audio", storedAudioName);
+
       if (!fs.existsSync(audioPath)) {
-        return res.status(404).json({ success: false, error: "Audio not found" });
+        return res.status(404).json({ success: false, error: "Stored audio not found" });
       }
-    } else {
-      const media = await Media.findById(mediaId);
-      if (!media) {
-        return res.status(404).json({ success: false, error: "Media not found for TTS" });
+    } 
+    else if (audioName) {
+      // ✅ If media.voiceUrl is missing, fall back to frontend-provided audioName
+      audioPath = path.join(__dirname, "..", "uploads", "audio", path.basename(audioName));
+
+      if (!fs.existsSync(audioPath)) {
+        return res.status(404).json({ success: false, error: "Provided audio not found" });
       }
+    } 
+    else {
+      // ✅ If no audio at all, auto-generate from story or description
       const textToSpeak = media.story || media.description || "Hello world";
       const ttsFileName = `tts-${mediaId}.mp3`;
       audioPath = path.join(__dirname, "..", "uploads", "audio", ttsFileName);
@@ -182,6 +196,8 @@ export const generateApiVideo = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+
 
 
 // export const generateApiVideo = async (req, res) => {
