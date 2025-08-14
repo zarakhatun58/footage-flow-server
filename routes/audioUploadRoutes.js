@@ -20,69 +20,80 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// Audio upload route
+const API_PUBLIC_URL = process.env.API_PUBLIC_URL || 'http://localhost:5000';
+
+
+// Unified route — upload OR generate audio
 router.post('/:mediaId', upload.single('file'), async (req, res) => {
   try {
-    const mediaId = req.params.mediaId;
+    const { mediaId } = req.params;
+    const { text } = req.body;
+
     const media = await Media.findById(mediaId);
     if (!media) {
       return res.status(404).json({ success: false, error: 'Media not found' });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No audio file uploaded' });
+    let audioPath;
+    if (req.file) {
+      // 📌 Manual file/record upload
+      audioPath = `/uploads/audio/${req.file.filename}`;
+    } else if (text) {
+      // 📌 Auto-generate from text
+      audioPath = await generateVoiceOver(text, `voice-${mediaId}.mp3`);
+    } else {
+      return res.status(400).json({ success: false, error: 'No file or text provided' });
     }
 
-    // ✅ Save audio file path in media document
-    media.voiceUrl = `/uploads/audio/${req.file.filename}`;
+    // Save latest audio
+    media.voiceUrl = audioPath;
     await media.save();
 
     res.json({
       success: true,
-      audioUrl: media.voiceUrl,
-      message: 'Audio uploaded and linked successfully'
+      audioUrl: `${API_PUBLIC_URL}${audioPath}`,
+      message: req.file ? 'Audio uploaded successfully' : 'Audio generated successfully'
     });
-
   } catch (error) {
-    console.error('Audio upload failed:', error);
+    console.error('Audio handling failed:', error);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
 //generate audio
-const API_PUBLIC_URL = process.env.API_PUBLIC_URL || 'http://localhost:5000';
 
-router.post('/generate-audio/:mediaId', async (req, res) => {
-  const { mediaId } = req.params;
-  const { text } = req.body;
 
-  if (!text) {
-    return res.status(400).json({ success: false, error: 'No text provided' });
-  }
+// router.post('/generate-audio/:mediaId', async (req, res) => {
+//   const { mediaId } = req.params;
+//   const { text } = req.body;
 
-  try {
-    // Generate audio
-    const audioRelativePath = await generateVoiceOver(text, `voice-${mediaId}.mp3`);
+//   if (!text) {
+//     return res.status(400).json({ success: false, error: 'No text provided' });
+//   }
 
-    // Find the media document
-    const media = await Media.findById(mediaId);
-    if (!media) {
-      return res.status(404).json({ success: false, error: 'Media not found' });
-    }
+//   try {
+//     // Generate audio
+//     const audioRelativePath = await generateVoiceOver(text, `voice-${mediaId}.mp3`);
 
-    // Save path in DB
-    media.voiceUrl = audioRelativePath;
-    await media.save();
+//     // Find the media document
+//     const media = await Media.findById(mediaId);
+//     if (!media) {
+//       return res.status(404).json({ success: false, error: 'Media not found' });
+//     }
 
-    // ✅ Serve from backend
-    const publicUrl = `${API_PUBLIC_URL}${audioRelativePath}`;
+//     // Save path in DB
+//     media.voiceUrl = audioRelativePath;
+//     await media.save();
 
-    res.json({ success: true, audioUrl: publicUrl });
-  } catch (error) {
-    console.error('TTS generation failed:', error);
-    res.status(500).json({ success: false, error: 'Failed to generate audio' });
-  }
-});
+//     // ✅ Serve from backend
+//     const publicUrl = `${API_PUBLIC_URL}${audioRelativePath}`;
+
+//     res.json({ success: true, audioUrl: publicUrl });
+//   } catch (error) {
+//     console.error('TTS generation failed:', error);
+//     res.status(500).json({ success: false, error: 'Failed to generate audio' });
+//   }
+// });
 
 
 export default router;
