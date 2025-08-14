@@ -57,11 +57,17 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// app.use((req, res, next) => {
+//   res.removeHeader("Cross-Origin-Opener-Policy");
+//   next();
+// });
+
+// ✅ Cross-Origin Isolation headers for Google OAuth
 app.use((req, res, next) => {
-  res.removeHeader("Cross-Origin-Opener-Policy");
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
   next();
 });
-
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB connected'))
   .catch((err) => console.error('MongoDB error', err));
