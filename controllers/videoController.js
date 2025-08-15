@@ -1,8 +1,8 @@
 
 import path from 'path';
-import fs from 'fs';
+import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { uploadToB2 } from '../utils/uploadToB2.js';
 import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
