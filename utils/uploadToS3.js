@@ -55,9 +55,11 @@ export const generateVideoToS3 = async ({
   story = "",
   tag = "",
 }) => {
+  // Ensure images exist locally
   imagePaths = imagePaths.filter((img) => fs.existsSync(img));
   if (imagePaths.length === 0) throw new Error("No valid images found.");
 
+  // Handle audio download if remote
   let localAudioPath = audioPath;
   if (/^https?:\/\//.test(audioPath)) {
     const audioDir = path.join(process.cwd(), "tmp-audio");
@@ -69,6 +71,7 @@ export const generateVideoToS3 = async ({
     throw new Error(`Audio file not found at ${localAudioPath}`);
   }
 
+  // Calculate number of images needed
   const audioDuration = await getAudioDuration(localAudioPath);
   const neededImages = Math.max(1, Math.ceil(audioDuration / perImageDuration));
   if (imagePaths.length < neededImages) {
@@ -76,43 +79,54 @@ export const generateVideoToS3 = async ({
     imagePaths = Array(repeats).fill(imagePaths).flat().slice(0, neededImages);
   }
 
-  const drawText = [];
+  // Build text overlay filters
+  const drawTextFilters = [];
   if (title)
-    drawText.push(
+    drawTextFilters.push(
       `drawtext=text='${escapeFF(title)}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=50`
     );
   if (emotion)
-    drawText.push(
+    drawTextFilters.push(
       `drawtext=text='${escapeFF(emotion)}':fontcolor=yellow:fontsize=36:box=1:boxcolor=black@0.5:x=w-tw-20:y=50`
     );
   if (story)
-    drawText.push(
+    drawTextFilters.push(
       `drawtext=text='${escapeFF(story)}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=(w-text_w)/2:y=h-th-100`
     );
   if (tag)
-    drawText.push(
+    drawTextFilters.push(
       `drawtext=text='${escapeFF(tag)}':fontcolor=cyan:fontsize=28:box=1:boxcolor=black@0.5:x=20:y=h-th-20`
     );
-  drawText.push(
+  drawTextFilters.push(
     `drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`
   );
 
-  const scaleFilter = targetWidth
-    ? `scale=${targetWidth}:-2,scale=trunc(iw/2)*2:trunc(ih/2)*2`
-    : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
-
-  // Temporary file for FFmpeg output
+  // Temporary output file
   const tmpFile = path.join(os.tmpdir(), `video-${Date.now()}.mp4`);
 
+  // Run ffmpeg
   await new Promise((resolve, reject) => {
     const command = ffmpeg();
-    imagePaths.forEach((img) =>
-      command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`])
-    );
+
+    // Add each image with scaling & padding to ensure even dimensions
+    imagePaths.forEach((img) => {
+      command
+        .input(img)
+        .inputOptions([`-loop 1`, `-t ${perImageDuration}`])
+        .videoFilter(
+          `scale=${targetWidth}:-2:force_original_aspect_ratio=decrease,pad=trunc(iw/2)*2:trunc(ih/2)*2:(ow-iw)/2:(oh-ih)/2`
+        );
+    });
+
+    // Add audio
     command.input(localAudioPath);
 
+    // Apply text overlays AFTER scaling
+    if (drawTextFilters.length) {
+      command.videoFilter(drawTextFilters.join(","));
+    }
+
     command
-      .complexFilter([scaleFilter, ...drawText])
       .videoCodec("libx264")
       .audioCodec("aac")
       .outputOptions([
@@ -132,7 +146,7 @@ export const generateVideoToS3 = async ({
       .save(tmpFile);
   });
 
-  // Upload using fs.createReadStream (sets ContentLength automatically)
+  // Upload to S3
   await s3.send(
     new PutObjectCommand({
       Bucket: s3Bucket,
