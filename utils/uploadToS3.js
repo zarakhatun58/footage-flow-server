@@ -30,6 +30,10 @@ const uploadFileToS3 = async (localPath, Bucket, Key) => {
   console.log(`✅ Uploaded to s3://${Bucket}/${Key}`);
 };
 
+const escapeFF = (txt) =>
+  txt.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
+
+
 export const generateVideoToS3 = async ({
   imagePaths,
   audioPath,
@@ -42,62 +46,91 @@ export const generateVideoToS3 = async ({
   story = "",
   tag = "",
 }) => {
-  if (!Array.isArray(imagePaths) || imagePaths.length === 0)
-    throw new Error("No images provided.");
-
+  // Validate files
   imagePaths = imagePaths.filter((img) => fs.existsSync(img));
+  if (!audioPath || !fs.existsSync(audioPath))
+    throw new Error("Audio file not found.");
   if (imagePaths.length === 0) throw new Error("No valid images exist.");
-  if (!audioPath || !fs.existsSync(audioPath)) throw new Error("Audio file not found.");
 
   const audioDuration = await getAudioDuration(audioPath);
-  const neededImages = Math.ceil(audioDuration / perImageDuration);
+  const neededImages = Math.max(1, Math.ceil(audioDuration / perImageDuration));
   if (imagePaths.length < neededImages) {
     const repeats = Math.ceil(neededImages / imagePaths.length);
     imagePaths = Array(repeats).fill(imagePaths).flat().slice(0, neededImages);
   }
 
+  // Prepare drawtext filters
   const drawText = [];
-  const escapeFF = (txt) => txt.replace(/'/g, "\\'");
-  if (title) drawText.push(`drawtext=text='${escapeFF(title)}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=50`);
-  if (emotion) drawText.push(`drawtext=text='${escapeFF(emotion)}':fontcolor=yellow:fontsize=36:box=1:boxcolor=black@0.5:x=w-tw-20:y=50`);
-  if (story) drawText.push(`drawtext=text='${escapeFF(story)}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=(w-text_w)/2:y=h-th-100`);
-  if (tag) drawText.push(`drawtext=text='${escapeFF(tag)}':fontcolor=cyan:fontsize=28:box=1:boxcolor=black@0.5:x=20:y=h-th-20`);
-  drawText.push(`drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`);
+  if (title)
+    drawText.push(
+      `drawtext=text='${escapeFF(title)}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=50`
+    );
+  if (emotion)
+    drawText.push(
+      `drawtext=text='${escapeFF(emotion)}':fontcolor=yellow:fontsize=36:box=1:boxcolor=black@0.5:x=w-tw-20:y=50`
+    );
+  if (story)
+    drawText.push(
+      `drawtext=text='${escapeFF(story)}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=(w-text_w)/2:y=h-th-100`
+    );
+  if (tag)
+    drawText.push(
+      `drawtext=text='${escapeFF(tag)}':fontcolor=cyan:fontsize=28:box=1:boxcolor=black@0.5:x=20:y=h-th-20`
+    );
+  drawText.push(
+    `drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`
+  );
 
-  const scaleFilter = targetWidth ? `scale=${targetWidth}:-2` : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
+  const scaleFilter = targetWidth
+    ? `scale=${targetWidth}:-2`
+    : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
-  // Temporary local file
-  const tempFile = path.join("/tmp", `temp-${Date.now()}.mp4`);
+  // PassThrough stream for S3 upload
+  const pass = new PassThrough();
 
-  return new Promise((resolve, reject) => {
-    const command = ffmpeg();
+  const command = ffmpeg();
 
-    imagePaths.forEach((img) => command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`]));
-    command.input(audioPath);
+  // Add images
+  imagePaths.forEach((img) =>
+    command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`])
+  );
 
-    command
-      .complexFilter([`${scaleFilter},${drawText.join(",")}`])
-      .videoCodec("libx264")
-      .audioCodec("aac")
-      .outputOptions(["-preset ultrafast", "-pix_fmt yuv420p", "-movflags +faststart", "-shortest"])
-      .format("mp4")
-      .save(tempFile)
-      .on("start", (cmd) => console.log("FFmpeg command:", cmd))
-      .on("error", (err, stdout, stderr) => {
-        console.error("❌ FFmpeg error:", err);
-        console.error(stderr);
-        reject(err);
-      })
-      .on("end", async () => {
-        try {
-          await uploadFileToS3(tempFile, s3Bucket, s3Key);
-          fs.unlinkSync(tempFile); // remove temp file
-          resolve(`s3://${s3Bucket}/${s3Key}`);
-        } catch (err) {
-          reject(err);
-        }
-      });
-  });
+  // Add audio
+  command.input(audioPath);
+
+  // Apply filters
+  const filters = [scaleFilter, ...drawText];
+  command
+    .complexFilter(filters)
+    .videoCodec("libx264")
+    .audioCodec("aac")
+    .outputOptions([
+      "-preset ultrafast",
+      "-pix_fmt yuv420p",
+      "-movflags +faststart",
+      "-shortest",
+    ])
+    .format("mp4")
+    .pipe(pass, { end: true })
+    .on("start", (cmd) => console.log("FFmpeg command:", cmd))
+    .on("error", (err, stdout, stderr) => {
+      console.error("❌ FFmpeg error:", err);
+      console.error(stderr);
+      throw err;
+    });
+
+  // Upload to S3
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: s3Bucket,
+      Key: s3Key,
+      Body: pass,
+      ContentType: "video/mp4",
+    })
+  );
+
+  console.log(`✅ Uploaded to s3://${s3Bucket}/${s3Key}`);
+  return `s3://${s3Bucket}/${s3Key}`;
 };
 
 // export const uploadFileToS3 = async (imagePaths, audioPath, s3Key, perImageDuration = 2) => {
