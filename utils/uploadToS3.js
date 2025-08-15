@@ -4,6 +4,7 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import ffmpegPkg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 import { PassThrough } from "stream";
+import { Upload } from "@aws-sdk/lib-storage";
 
 const ffmpeg = ffmpegPkg;
 if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
