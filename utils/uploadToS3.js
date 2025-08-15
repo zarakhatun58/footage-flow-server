@@ -16,6 +16,12 @@ const s3 = new S3Client({
   },
 });
 
+
+// Helper: escape for ffmpeg drawtext
+const escapeFF = (txt = "") =>
+  txt.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
+
+// Helper: get audio duration
 const getAudioDuration = (audioPath) =>
   new Promise((resolve, reject) => {
     ffmpeg.ffprobe(audioPath, (err, metadata) => {
@@ -24,15 +30,18 @@ const getAudioDuration = (audioPath) =>
     });
   });
 
-const uploadFileToS3 = async (localPath, Bucket, Key) => {
-  const fileStream = fs.createReadStream(localPath);
-  await s3.send(new PutObjectCommand({ Bucket, Key, Body: fileStream }));
-  console.log(`✅ Uploaded to s3://${Bucket}/${Key}`);
-};
-
-const escapeFF = (txt) =>
-  txt.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
-
+// Helper: download remote file
+const downloadFile = (url, dest) =>
+  new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(dest);
+    https.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        return reject(new Error(`Failed to download: ${url}`));
+      }
+      response.pipe(file);
+      file.on("finish", () => file.close(resolve));
+    }).on("error", reject);
+  });
 
 export const generateVideoToS3 = async ({
   imagePaths,
@@ -46,20 +55,30 @@ export const generateVideoToS3 = async ({
   story = "",
   tag = "",
 }) => {
-  // Validate files
+  // 1️⃣ Ensure local files exist (download if needed)
   imagePaths = imagePaths.filter((img) => fs.existsSync(img));
-  if (!audioPath || !fs.existsSync(audioPath))
-    throw new Error("Audio file not found.");
-  if (imagePaths.length === 0) throw new Error("No valid images exist.");
+  if (imagePaths.length === 0) throw new Error("No valid images found.");
 
-  const audioDuration = await getAudioDuration(audioPath);
+  let localAudioPath = audioPath;
+  if (/^https?:\/\//.test(audioPath)) {
+    const audioDir = path.join(process.cwd(), "tmp-audio");
+    await fs.promises.mkdir(audioDir, { recursive: true });
+    localAudioPath = path.join(audioDir, path.basename(audioPath));
+    await downloadFile(audioPath, localAudioPath);
+  }
+  if (!fs.existsSync(localAudioPath)) {
+    throw new Error(`Audio file not found at ${localAudioPath}`);
+  }
+
+  // 2️⃣ Match number of images to audio length
+  const audioDuration = await getAudioDuration(localAudioPath);
   const neededImages = Math.max(1, Math.ceil(audioDuration / perImageDuration));
   if (imagePaths.length < neededImages) {
     const repeats = Math.ceil(neededImages / imagePaths.length);
     imagePaths = Array(repeats).fill(imagePaths).flat().slice(0, neededImages);
   }
 
-  // Prepare drawtext filters
+  // 3️⃣ Build drawtext filters
   const drawText = [];
   if (title)
     drawText.push(
@@ -85,21 +104,17 @@ export const generateVideoToS3 = async ({
     ? `scale=${targetWidth}:-2`
     : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
-  // PassThrough stream for S3 upload
+  // 4️⃣ Stream video directly to S3
   const pass = new PassThrough();
 
   const command = ffmpeg();
-
-  // Add images
   imagePaths.forEach((img) =>
     command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`])
   );
+  command.input(localAudioPath);
 
-  // Add audio
-  command.input(audioPath);
-
-  // Apply filters
   const filters = [scaleFilter, ...drawText];
+
   command
     .complexFilter(filters)
     .videoCodec("libx264")
@@ -111,15 +126,13 @@ export const generateVideoToS3 = async ({
       "-shortest",
     ])
     .format("mp4")
-    .pipe(pass, { end: true })
-    .on("start", (cmd) => console.log("FFmpeg command:", cmd))
+    .on("start", (cmd) => console.log("🎬 FFmpeg:", cmd))
     .on("error", (err, stdout, stderr) => {
       console.error("❌ FFmpeg error:", err);
       console.error(stderr);
-      throw err;
-    });
+    })
+    .pipe(pass, { end: true });
 
-  // Upload to S3
   await s3.send(
     new PutObjectCommand({
       Bucket: s3Bucket,
@@ -130,7 +143,7 @@ export const generateVideoToS3 = async ({
   );
 
   console.log(`✅ Uploaded to s3://${s3Bucket}/${s3Key}`);
-  return `s3://${s3Bucket}/${s3Key}`;
+  return `https://${s3Bucket}.s3.amazonaws.com/${s3Key}`;
 };
 
 // export const uploadFileToS3 = async (imagePaths, audioPath, s3Key, perImageDuration = 2) => {

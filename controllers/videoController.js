@@ -38,7 +38,7 @@ export const generateApiVideo = async (req, res) => {
     const audioDir = path.join(uploadsDir, "audio");
     await fs.mkdir(audioDir, { recursive: true });
 
-    // Resolve image paths
+    // Resolve image paths (must exist locally)
     const imagePaths = imageNames.map((name) =>
       path.join(uploadsDir, path.basename(name))
     );
@@ -49,15 +49,19 @@ export const generateApiVideo = async (req, res) => {
       return res.status(404).json({ success: false, error: "Media not found" });
     }
 
-    // Determine audio path
-    let audioPath = audioName
-      ? path.join(audioDir, path.basename(audioName))
-      : media.voiceUrl
-      ? path.join(audioDir, path.basename(media.voiceUrl))
-      : path.join(audioDir, `tts-${mediaId}.mp3`);
-
-    // Generate voiceover if needed
-    if (!audioName && !media.voiceUrl) {
+    // Determine audio source (local path OR remote URL)
+    let audioPath;
+    if (audioName) {
+      // Local uploaded audio
+      audioPath = path.join(audioDir, path.basename(audioName));
+    } else if (media.voiceUrl) {
+      // If it's already a full URL, keep it as URL; if relative, treat as local
+      audioPath = /^https?:\/\//.test(media.voiceUrl)
+        ? media.voiceUrl
+        : path.join(audioDir, path.basename(media.voiceUrl));
+    } else {
+      // No audio exists — generate TTS locally
+      audioPath = path.join(audioDir, `tts-${mediaId}.mp3`);
       await generateVoiceOver(
         media.story || media.description || "Hello world",
         audioPath
@@ -72,7 +76,7 @@ export const generateApiVideo = async (req, res) => {
 
     await generateVideoToS3({
       imagePaths,
-      audioPath,
+      audioPath, // now safe: can be local or remote URL
       s3Bucket,
       s3Key: s3VideoKey,
       perImageDuration: 2,
@@ -83,11 +87,11 @@ export const generateApiVideo = async (req, res) => {
       tag: "",
     });
 
-    // Generate thumbnail and upload
+    // Generate thumbnail & upload
     const tempThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
     await generateThumbnail(audioPath, tempThumbPath);
     const s3ThumbKey = `thumbnails/${path.basename(tempThumbPath)}`;
-    const thumbnailUrl = await uploadFileToS3(tempThumbPath, s3ThumbKey);
+    const thumbnailUrl = await uploadFileToS3(tempThumbPath, s3Bucket, s3ThumbKey);
     await fs.unlink(tempThumbPath).catch(() => {});
 
     // Update DB
@@ -122,6 +126,7 @@ export const generateApiVideo = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 
 
 export const saveFinalVideo = async (req, res) => {
