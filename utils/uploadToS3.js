@@ -4,7 +4,7 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import ffmpegPkg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 import { PassThrough } from "stream";
-import { Upload } from "@aws-sdk/lib-storage";
+import os from "os";
 
 const ffmpeg = ffmpegPkg;
 if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
@@ -97,49 +97,53 @@ export const generateVideoToS3 = async ({
     `drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`
   );
 
-  // Always ensure even dimensions for H.264
   const scaleFilter = targetWidth
     ? `scale=${targetWidth}:-2,scale=trunc(iw/2)*2:trunc(ih/2)*2`
     : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
-  const pass = new PassThrough();
+  // Temporary file for FFmpeg output
+  const tmpFile = path.join(os.tmpdir(), `video-${Date.now()}.mp4`);
 
-  const command = ffmpeg();
-  imagePaths.forEach((img) =>
-    command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`])
-  );
-  command.input(localAudioPath);
+  await new Promise((resolve, reject) => {
+    const command = ffmpeg();
+    imagePaths.forEach((img) =>
+      command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`])
+    );
+    command.input(localAudioPath);
 
-  command
-    .complexFilter([scaleFilter, ...drawText])
-    .videoCodec("libx264")
-    .audioCodec("aac")
-    .outputOptions([
-      "-preset ultrafast",
-      "-pix_fmt yuv420p",
-      "-movflags +faststart",
-      "-shortest",
-    ])
-    .format("mp4")
-    .on("start", (cmd) => console.log("🎬 FFmpeg:", cmd))
-    .on("error", (err, stdout, stderr) => {
-      console.error("❌ FFmpeg error:", err);
-      console.error(stderr);
-    })
-    .pipe(pass, { end: true });
-
-  // Multipart upload to avoid ContentLength requirement
-  const upload = new Upload({
-    client: s3,
-    params: {
-      Bucket: s3Bucket,
-      Key: s3Key,
-      Body: pass,
-      ContentType: "video/mp4",
-    },
+    command
+      .complexFilter([scaleFilter, ...drawText])
+      .videoCodec("libx264")
+      .audioCodec("aac")
+      .outputOptions([
+        "-preset ultrafast",
+        "-pix_fmt yuv420p",
+        "-movflags +faststart",
+        "-shortest",
+      ])
+      .format("mp4")
+      .on("start", (cmd) => console.log("🎬 FFmpeg:", cmd))
+      .on("error", (err, stdout, stderr) => {
+        console.error("❌ FFmpeg error:", err);
+        console.error(stderr);
+        reject(err);
+      })
+      .on("end", resolve)
+      .save(tmpFile);
   });
 
-  await upload.done();
+  // Upload using fs.createReadStream (sets ContentLength automatically)
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: s3Bucket,
+      Key: s3Key,
+      Body: fs.createReadStream(tmpFile),
+      ContentType: "video/mp4",
+    })
+  );
+
+  // Cleanup temp file
+  fs.unlink(tmpFile, () => {});
 
   console.log(`✅ Uploaded to s3://${s3Bucket}/${s3Key}`);
   return `https://${s3Bucket}.s3.amazonaws.com/${s3Key}`;
