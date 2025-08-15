@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
-import { generateVideoStreamToS3 } from '../utils/uploadToS3.js';
+import { generateVideoToS3 } from '../utils/uploadToS3.js';
 import { generateThumbnail } from '../utils/generateThumbnail.js';
 import { getSignedUrlFromS3 } from '../utils/s3Client.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -66,7 +66,7 @@ export const generateApiVideo = async (req, res) => {
     const s3Bucket = process.env.AWS_BUCKET_NAME;
     const s3VideoKey = `videos/video-${uuidv4()}.mp4`;
 
-    await generateVideoStreamToS3({
+    await generateVideoToS3({
       imagePaths,
       audioPath,
       s3Bucket,

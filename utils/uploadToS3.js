@@ -23,87 +23,80 @@ const getAudioDuration = (audioPath) =>
       resolve(metadata.format?.duration || 0);
     });
   });
-const uploadStreamToS3 = (Bucket, Key) => {
-  const pass = new PassThrough();
-  s3.send(new PutObjectCommand({ Bucket, Key, Body: pass }))
-    .then(() => console.log(`✅ Uploaded to s3://${Bucket}/${Key}`))
-    .catch((err) => console.error('❌ S3 Upload error:', err));
-  return pass;
+
+const uploadFileToS3 = async (localPath, Bucket, Key) => {
+  const fileStream = fs.createReadStream(localPath);
+  await s3.send(new PutObjectCommand({ Bucket, Key, Body: fileStream }));
+  console.log(`✅ Uploaded to s3://${Bucket}/${Key}`);
 };
 
-export const generateVideoStreamToS3 = async ({
+export const generateVideoToS3 = async ({
   imagePaths,
   audioPath,
   s3Bucket,
   s3Key,
   perImageDuration = 2,
   targetWidth = 1280,
-  title = '',
-  emotion = '',
-  story = '',
-  tag = ''
+  title = "",
+  emotion = "",
+  story = "",
+  tag = "",
 }) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
-        throw new Error('No images provided.');
-      }
+  if (!Array.isArray(imagePaths) || imagePaths.length === 0)
+    throw new Error("No images provided.");
 
-      imagePaths = imagePaths.filter((img) => fs.existsSync(img));
-      if (imagePaths.length === 0) throw new Error('No valid images exist.');
+  imagePaths = imagePaths.filter((img) => fs.existsSync(img));
+  if (imagePaths.length === 0) throw new Error("No valid images exist.");
+  if (!audioPath || !fs.existsSync(audioPath)) throw new Error("Audio file not found.");
 
-      if (!audioPath || !fs.existsSync(audioPath)) {
-        throw new Error('Audio file not found.');
-      }
+  const audioDuration = await getAudioDuration(audioPath);
+  const neededImages = Math.ceil(audioDuration / perImageDuration);
+  if (imagePaths.length < neededImages) {
+    const repeats = Math.ceil(neededImages / imagePaths.length);
+    imagePaths = Array(repeats).fill(imagePaths).flat().slice(0, neededImages);
+  }
 
-      const audioDuration = await getAudioDuration(audioPath);
-      const neededImages = Math.ceil(audioDuration / perImageDuration);
-      if (imagePaths.length < neededImages) {
-        const repeats = Math.ceil(neededImages / imagePaths.length);
-        imagePaths = Array(repeats).fill(imagePaths).flat().slice(0, neededImages);
-      }
+  const drawText = [];
+  const escapeFF = (txt) => txt.replace(/'/g, "\\'");
+  if (title) drawText.push(`drawtext=text='${escapeFF(title)}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=50`);
+  if (emotion) drawText.push(`drawtext=text='${escapeFF(emotion)}':fontcolor=yellow:fontsize=36:box=1:boxcolor=black@0.5:x=w-tw-20:y=50`);
+  if (story) drawText.push(`drawtext=text='${escapeFF(story)}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=(w-text_w)/2:y=h-th-100`);
+  if (tag) drawText.push(`drawtext=text='${escapeFF(tag)}':fontcolor=cyan:fontsize=28:box=1:boxcolor=black@0.5:x=20:y=h-th-20`);
+  drawText.push(`drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`);
 
-      const drawText = [];
-      const escapeFF = (txt) => txt.replace(/'/g, "\\'");
+  const scaleFilter = targetWidth ? `scale=${targetWidth}:-2` : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
-      if (title) drawText.push(`drawtext=text='${escapeFF(title)}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=50`);
-      if (emotion) drawText.push(`drawtext=text='${escapeFF(emotion)}':fontcolor=yellow:fontsize=36:box=1:boxcolor=black@0.5:x=w-tw-20:y=50`);
-      if (story) drawText.push(`drawtext=text='${escapeFF(story)}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=(w-text_w)/2:y=h-th-100`);
-      if (tag) drawText.push(`drawtext=text='${escapeFF(tag)}':fontcolor=cyan:fontsize=28:box=1:boxcolor=black@0.5:x=20:y=h-th-20`);
+  // Temporary local file
+  const tempFile = path.join("/tmp", `temp-${Date.now()}.mp4`);
 
-      drawText.push(`drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`);
+  return new Promise((resolve, reject) => {
+    const command = ffmpeg();
 
-      const scaleFilter = targetWidth ? `scale=${targetWidth}:-2` : 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
+    imagePaths.forEach((img) => command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`]));
+    command.input(audioPath);
 
-      const command = ffmpeg();
-
-      imagePaths.forEach((img) => {
-        command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`]);
-      });
-
-      command.input(audioPath);
-
-      command
-        .complexFilter([`${scaleFilter},${drawText.join(',')}`])
-        .videoCodec('libx264')
-        .audioCodec('aac')
-        .outputOptions(['-preset ultrafast', '-pix_fmt yuv420p', '-movflags +faststart', '-shortest'])
-        .format('mp4');
-
-      const passThrough = uploadStreamToS3(s3Bucket, s3Key);
-
-      command
-        .on('start', (cmd) => console.log('FFmpeg command:', cmd))
-        .on('error', (err, stdout, stderr) => {
-          console.error('❌ FFmpeg error:', err);
-          console.error(stderr);
+    command
+      .complexFilter([`${scaleFilter},${drawText.join(",")}`])
+      .videoCodec("libx264")
+      .audioCodec("aac")
+      .outputOptions(["-preset ultrafast", "-pix_fmt yuv420p", "-movflags +faststart", "-shortest"])
+      .format("mp4")
+      .save(tempFile)
+      .on("start", (cmd) => console.log("FFmpeg command:", cmd))
+      .on("error", (err, stdout, stderr) => {
+        console.error("❌ FFmpeg error:", err);
+        console.error(stderr);
+        reject(err);
+      })
+      .on("end", async () => {
+        try {
+          await uploadFileToS3(tempFile, s3Bucket, s3Key);
+          fs.unlinkSync(tempFile); // remove temp file
+          resolve(`s3://${s3Bucket}/${s3Key}`);
+        } catch (err) {
           reject(err);
-        })
-        .on('end', () => resolve(`s3://${s3Bucket}/${s3Key}`))
-        .pipe(passThrough, { end: true });
-    } catch (err) {
-      reject(err);
-    }
+        }
+      });
   });
 };
 
