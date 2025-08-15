@@ -138,35 +138,30 @@ export const generateApiVideo = async (req, res) => {
     const videoUrl = await uploadFileToS3(tempOutput, `videos/${path.basename(tempOutput)}`);
     const thumbUrl = await uploadFileToS3(localThumbPath, `thumbnails/${path.basename(localThumbPath)}`);
 
-    // Optional: transcript, tags, emotions (replace with your actual AI functions)
-    const transcript = await generateTranscript?.(tempOutput) || "";
-    const tags = await generateTags?.(transcript) || [];
-    const emotions = await detectEmotions?.(transcript) || [];
-
     // Save to DB
     const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
     await Media.findByIdAndUpdate(mediaId, {
       storyUrl: videoUrl,
       thumbnailUrl: thumbUrl,
-      transcript,
-      tags,
-      emotions,
+      transcript: "", // optional placeholder
+      tags: [],
+      emotions: [],
       encodingStatus: "completed",
       mediaType: "video",
       shares: 1,
       createdAt: new Date(),
     });
 
-    // Cleanup
-    await Promise.all([fs.unlink(tempOutput).catch(() => {}), fs.unlink(localThumbPath).catch(() => {})]);
+    // Cleanup temp files safely
+    await Promise.all([
+      fs.unlink(tempOutput).catch(() => {}),
+      fs.unlink(localThumbPath).catch(() => {})
+    ]);
 
     res.json({
       success: true,
       videoUrl,
       thumbnailUrl: thumbUrl,
-      transcript,
-      tags,
-      emotions,
       shortUrl: `${FRONTEND_URL}/m/${mediaId}`,
     });
 
@@ -175,7 +170,6 @@ export const generateApiVideo = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
 
 
 
