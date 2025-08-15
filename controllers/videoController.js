@@ -131,27 +131,21 @@ export const generateApiVideo = async (req, res) => {
 
 export const saveFinalVideo = async (req, res) => {
   try {
-    const { mediaId, localPath } = req.body;
+    const { mediaId, videoUrl } = req.body; // accept URL directly
 
-    if (!(await fileExists(localPath))) {
-      return res.status(400).json({ error: "Video file not found" });
+    if (!videoUrl) {
+      return res.status(400).json({ error: "Video URL is required" });
     }
-
-    const s3Key = `videos/${path.basename(localPath)}`;
-    const videoUrl = await uploadFileToS3(localPath, s3Key);
 
     await Media.findByIdAndUpdate(mediaId, {
       storyUrl: videoUrl,
       encodingStatus: "completed",
     });
 
-    // Delete local file safely
-    await fs.unlink(localPath).catch(() => {});
-
     res.json({ success: true, url: videoUrl });
   } catch (err) {
-    console.error("Error uploading video to S3:", err);
-    res.status(500).json({ error: "Failed to upload to S3" });
+    console.error("Error saving video URL:", err);
+    res.status(500).json({ error: "Failed to save video URL" });
   }
 };
 
