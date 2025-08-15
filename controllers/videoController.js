@@ -92,71 +92,59 @@ const __dirname = path.dirname(__filename);
 export const generateApiVideo = async (req, res) => {
   try {
     const { imageNames, audioName, mediaId } = req.body;
-
-    if (!imageNames || !Array.isArray(imageNames) || imageNames.length === 0 || !mediaId) {
+    if (!imageNames?.length || !mediaId) {
       return res.status(400).json({ success: false, error: "Missing images or mediaId" });
     }
 
-    // Ensure uploads and uploads/audio directories exist
     const uploadsDir = path.join(__dirname, "..", "uploads");
     const audioDir = path.join(uploadsDir, "audio");
     await fs.mkdir(audioDir, { recursive: true });
 
-    // 1️⃣ Resolve image paths
+    // Resolve image paths
     const imagePaths = imageNames.map(name => path.join(uploadsDir, path.basename(name)));
     for (const imgPath of imagePaths) {
-      if (!existsSync(imgPath)) {
-        return res.status(404).json({ success: false, error: `Image not found: ${imgPath}` });
-      }
+      if (!existsSync(imgPath)) return res.status(404).json({ success: false, error: `Image not found: ${imgPath}` });
     }
 
-    // 2️⃣ Fetch media and determine audio
+    // Fetch media
     const media = await Media.findById(mediaId);
     if (!media) return res.status(404).json({ success: false, error: "Media not found" });
 
+    // Determine audio
     let audioPath;
     if (media.voiceUrl) {
-      // Use stored audio
-      const storedAudioName = path.basename(media.voiceUrl);
-      audioPath = path.join(audioDir, storedAudioName);
+      audioPath = path.join(audioDir, path.basename(media.voiceUrl));
       if (!existsSync(audioPath)) return res.status(404).json({ success: false, error: "Stored audio not found" });
     } else if (audioName) {
-      // Use frontend-provided audio
       audioPath = path.join(audioDir, path.basename(audioName));
       if (!existsSync(audioPath)) return res.status(404).json({ success: false, error: "Provided audio not found" });
     } else {
-      // Generate TTS
-      const textToSpeak = media.story || media.description || "Hello world";
       const ttsFileName = `tts-${mediaId}.mp3`;
       audioPath = path.join(audioDir, ttsFileName);
-      await generateVoiceOver(textToSpeak, ttsFileName);
-
+      await generateVoiceOver(media.story || media.description || "Hello world", ttsFileName);
       media.voiceUrl = `/uploads/audio/${ttsFileName}`;
       await media.save();
     }
 
-    // 3️⃣ Generate temp video
+    // Generate video
     const tempOutput = path.join(uploadsDir, `temp-${uuidv4()}.mp4`);
-    await generateVideo(imagePaths, audioPath, tempOutput, 10); // duration 10 sec per image
+    await generateVideo(imagePaths, audioPath, tempOutput, 10);
 
-    // 4️⃣ Generate thumbnail
+    // Generate thumbnail
     const localThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
     await generateThumbnail(tempOutput, localThumbPath);
 
-    // 5️⃣ Upload video & thumbnail to S3
-    const s3VideoKey = `videos/${path.basename(tempOutput)}`;
-    const videoUrl = await uploadFileToS3(tempOutput, s3VideoKey);
-    const s3ThumbKey = `thumbnails/${path.basename(localThumbPath)}`;
-    const thumbUrl = await uploadFileToS3(localThumbPath, s3ThumbKey);
+    // Upload video & thumbnail to S3
+    const videoUrl = await uploadFileToS3(tempOutput, `videos/${path.basename(tempOutput)}`);
+    const thumbUrl = await uploadFileToS3(localThumbPath, `thumbnails/${path.basename(localThumbPath)}`);
 
-    // 6️⃣ AI: Transcript, Tags, Emotions
-    const transcript = await generateTranscript(tempOutput);
-    const tags = await generateTags(transcript);
-    const emotions = await detectEmotions(transcript);
+    // Optional: transcript, tags, emotions (replace with your actual AI functions)
+    const transcript = await generateTranscript?.(tempOutput) || "";
+    const tags = await generateTags?.(transcript) || [];
+    const emotions = await detectEmotions?.(transcript) || [];
 
-    // 7️⃣ Save to DB
+    // Save to DB
     const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
-    const shortUrl = `${FRONTEND_URL}/m/${mediaId}`;
     await Media.findByIdAndUpdate(mediaId, {
       storyUrl: videoUrl,
       thumbnailUrl: thumbUrl,
@@ -169,11 +157,9 @@ export const generateApiVideo = async (req, res) => {
       createdAt: new Date(),
     });
 
-    // 8️⃣ Cleanup temp files safely
-    try { await fs.unlink(tempOutput); } catch (e) { console.warn("Temp video deletion failed:", e); }
-    try { await fs.unlink(localThumbPath); } catch (e) { console.warn("Thumbnail deletion failed:", e); }
+    // Cleanup
+    await Promise.all([fs.unlink(tempOutput).catch(() => {}), fs.unlink(localThumbPath).catch(() => {})]);
 
-    // 9️⃣ Respond
     res.json({
       success: true,
       videoUrl,
@@ -181,7 +167,7 @@ export const generateApiVideo = async (req, res) => {
       transcript,
       tags,
       emotions,
-      shortUrl
+      shortUrl: `${FRONTEND_URL}/m/${mediaId}`,
     });
 
   } catch (err) {

@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import mime from "mime"; 
+import mime from "mime";
 
 const s3 = new S3Client({
   region: process.env.AWS_REGION, // e.g., "eu-north-1"
@@ -17,6 +17,24 @@ const s3 = new S3Client({
  * @param {string} key - The S3 key (path/filename) inside the bucket.
  * @returns {string} - Public URL of the uploaded file.
  */
+const getMimeType = (filePath) => {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case ".mp4":
+      return "video/mp4";
+    case ".mp3":
+      return "audio/mpeg";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".png":
+      return "image/png";
+    default:
+      return mime.getType(filePath) || "application/octet-stream";
+  }
+};
+
+
 export const uploadFileToS3 = async (filePath, key) => {
   const bucketName = process.env.AWS_BUCKET_NAME;
   if (!bucketName) throw new Error("AWS_BUCKET_NAME not set in environment variables");
@@ -25,16 +43,14 @@ export const uploadFileToS3 = async (filePath, key) => {
     throw new Error(`File does not exist: ${filePath}`);
   }
 
-  // Dynamically detect MIME type
-  const contentType = mime.lookup(filePath) || "application/octet-stream";
-
+  const contentType = getMimeType(filePath);
   const fileStream = fs.createReadStream(filePath);
 
   const params = {
     Bucket: bucketName,
     Key: key,
     Body: fileStream,
-    ContentType: contentType // ✅ now works for mp4, jpg, png, mp3, etc.
+    ContentType: contentType,
   };
 
   try {
