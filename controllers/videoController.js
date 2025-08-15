@@ -9,6 +9,8 @@ import { generateVoiceOver } from '../utils/textToSpeechService.js';
 import { uploadFileToS3 } from '../utils/uploadToS3.js';
 import { generateThumbnail } from '../utils/generateThumbnail.js';
 import { getSignedUrlFromS3 } from '../utils/s3Client.js';
+import { v4 as uuidv4 } from 'uuid';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,6 +113,8 @@ export const generateApiVideo = async (req, res) => {
     if (!media) {
       return res.status(404).json({ success: false, error: "Media not found" });
     }
+    const audioDir = path.resolve(__dirname, "..", "uploads", "audio");
+    await fs.mkdir(audioDir, { recursive: true });
 
     let audioPath;
     if (media.voiceUrl) {
@@ -121,7 +125,7 @@ export const generateApiVideo = async (req, res) => {
       if (!fs.existsSync(audioPath)) {
         return res.status(404).json({ success: false, error: "Stored audio not found" });
       }
-    } 
+    }
     else if (audioName) {
       // ✅ If media.voiceUrl is missing, fall back to frontend-provided audioName
       audioPath = path.join(__dirname, "..", "uploads", "audio", path.basename(audioName));
@@ -129,17 +133,23 @@ export const generateApiVideo = async (req, res) => {
       if (!fs.existsSync(audioPath)) {
         return res.status(404).json({ success: false, error: "Provided audio not found" });
       }
-    } 
+    }
     else {
       // ✅ If no audio at all, auto-generate from story or description
       const textToSpeak = media.story || media.description || "Hello world";
       const ttsFileName = `tts-${mediaId}.mp3`;
       audioPath = path.join(__dirname, "..", "uploads", "audio", ttsFileName);
       await generateVoiceOver(textToSpeak, ttsFileName);
+
+      // ✅ UPDATE DB: save TTS path so future requests work
+      media.voiceUrl = `/uploads/audio/${ttsFileName}`;
+      await media.save();
     }
 
+
     // 3️⃣ Generate temp video
-    const tempOutput = path.join(__dirname, "..", "uploads", `temp-${Date.now()}.mp4`);
+    const tempOutput = path.join(__dirname, "..", "uploads", `temp-${uuidv4()}.mp4`);
+    // const tempOutput = path.join(__dirname, "..", "uploads", `temp-${Date.now()}.mp4`);
     await generateVideo(imagePaths, audioPath, tempOutput, 10);
 
     // 4️⃣ Generate thumbnail
@@ -177,8 +187,9 @@ export const generateApiVideo = async (req, res) => {
     });
 
     // 8️⃣ Cleanup temp files
-    fs.unlinkSync(tempOutput);
-    fs.unlinkSync(localThumbPath);
+    try { await fs.unlink(tempOutput); } catch (e) { console.warn("Temp video deletion failed:", e); }
+    try { await fs.unlink(localThumbPath); } catch (e) { console.warn("Thumbnail deletion failed:", e); }
+
 
     // 9️⃣ Respond with everything ready for sharing
     res.json({

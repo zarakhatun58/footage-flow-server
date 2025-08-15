@@ -34,12 +34,14 @@
     "googleapis": "^155.0.1",
     "http": "^0.0.1-security",
     "jsonwebtoken": "^9.0.2",
+    "mime": "^4.0.7",
     "mongoose": "^8.16.5",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.5",
     "openai": "^5.10.2",
     "path": "^0.12.7",
-    "url": "^0.11.4"
+    "url": "^0.11.4",
+    "uuid": "^11.1.0"
   }
 }

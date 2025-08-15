@@ -43,18 +43,18 @@ export async function generateVoiceOver(text, outputFile = 'output.mp3') {
     audioConfig: { audioEncoding: 'MP3' },
   };
 
-  const [response] = await client.synthesizeSpeech(request);
+   const [response] = await client.synthesizeSpeech(request);
 
-  // Ensure uploads directory exists
-  const uploadsDir = path.resolve('uploads');
-  await fs.mkdir(uploadsDir, { recursive: true });
+  // Ensure uploads/audio directory exists
+  const audioDir = path.resolve('uploads', 'audio');
+  await fs.mkdir(audioDir, { recursive: true });
 
-  // Save file locally inside uploads/
-  const outputPath = path.join(uploadsDir, outputFile);
+   // Save MP3 in uploads/audio
+  const outputPath = path.join(audioDir, outputFile);
   await fs.writeFile(outputPath, response.audioContent, 'binary');
 
-  console.log('✅ Voice-over created at local path:', outputPath);
+    console.log('✅ Voice-over created at local path:', outputPath);
 
-  // Return relative path from project root (to store in DB)
-  return `/uploads/${outputFile}`;
+ // Return relative path to store in DB (for media.voiceUrl)
+  return `/uploads/audio/${outputFile}`;
 }
