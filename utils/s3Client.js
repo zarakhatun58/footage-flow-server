@@ -17,7 +17,7 @@ export const getSignedUrlFromS3 = async (key, expiresIn = 3600) => {
   }
 
   const command = new GetObjectCommand({
-    Bucket: process.env.AWS_S3_BUCKET,
+    Bucket: process.env.AWS_BUCKET_NAME,
     Key: key
   });
 
