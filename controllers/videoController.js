@@ -1,7 +1,6 @@
 
 import path from 'path';
 import fs from 'fs/promises';
-import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
@@ -14,6 +13,184 @@ import { v4 as uuidv4 } from 'uuid';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const fileExists = async (filePath) => {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const generateApiVideo = async (req, res) => {
+  try {
+    const { imageNames, audioName, mediaId } = req.body;
+
+    if (!imageNames?.length || !mediaId) {
+      return res.status(400).json({ success: false, error: "Missing images or mediaId" });
+    }
+
+    const uploadsDir = path.join(process.cwd(), "uploads");
+    const audioDir = path.join(uploadsDir, "audio");
+    await fs.mkdir(audioDir, { recursive: true });
+
+    // Resolve image paths and validate
+    const imagePaths = imageNames.map(name => path.join(uploadsDir, path.basename(name)));
+    for (const imgPath of imagePaths) {
+      if (!(await fileExists(imgPath))) {
+        return res.status(404).json({ success: false, error: `Image not found: ${imgPath}` });
+      }
+    }
+
+    // Fetch media
+    const media = await Media.findById(mediaId);
+    if (!media) return res.status(404).json({ success: false, error: "Media not found" });
+
+    // Determine audio
+    let audioPath;
+    if (media.voiceUrl) {
+      audioPath = path.join(audioDir, path.basename(media.voiceUrl));
+      if (!(await fileExists(audioPath))) {
+        return res.status(404).json({ success: false, error: "Stored audio not found" });
+      }
+    } else if (audioName) {
+      audioPath = path.join(audioDir, path.basename(audioName));
+      if (!(await fileExists(audioPath))) {
+        return res.status(404).json({ success: false, error: "Provided audio not found" });
+      }
+    } else {
+      // Generate TTS
+      const ttsFileName = `tts-${mediaId}.mp3`;
+      audioPath = path.join(audioDir, ttsFileName);
+      await generateVoiceOver(media.story || media.description || "Hello world", ttsFileName);
+      media.voiceUrl = `/uploads/audio/${ttsFileName}`;
+      await media.save();
+    }
+
+    // Generate video
+    const tempOutput = path.join(uploadsDir, `temp-${uuidv4()}.mp4`);
+    await generateVideo(imagePaths, audioPath, tempOutput, 10);
+
+    // Generate thumbnail
+    const localThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
+    await generateThumbnail(tempOutput, localThumbPath);
+
+    // Upload video & thumbnail to S3
+    const videoUrl = await uploadFileToS3(tempOutput, `videos/${path.basename(tempOutput)}`);
+    const thumbUrl = await uploadFileToS3(localThumbPath, `thumbnails/${path.basename(localThumbPath)}`);
+
+    // Save to DB
+    const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
+    await Media.findByIdAndUpdate(mediaId, {
+      storyUrl: videoUrl,
+      thumbnailUrl: thumbUrl,
+      transcript: "",
+      tags: [],
+      emotions: [],
+      encodingStatus: "completed",
+      mediaType: "video",
+      shares: 1,
+      createdAt: new Date(),
+    });
+
+    // Cleanup temp files safely
+    await Promise.all([
+      fs.unlink(tempOutput).catch(() => {}),
+      fs.unlink(localThumbPath).catch(() => {}),
+    ]);
+
+    res.json({
+      success: true,
+      videoUrl,
+      thumbnailUrl: thumbUrl,
+      shortUrl: `${FRONTEND_URL}/m/${mediaId}`,
+    });
+  } catch (err) {
+    console.error("❌ Video generation failed:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
+export const saveFinalVideo = async (req, res) => {
+  try {
+    const { mediaId, localPath } = req.body;
+
+    if (!(await fileExists(localPath))) {
+      return res.status(400).json({ error: "Video file not found" });
+    }
+
+    const s3Key = `videos/${path.basename(localPath)}`;
+    const videoUrl = await uploadFileToS3(localPath, s3Key);
+
+    await Media.findByIdAndUpdate(mediaId, {
+      storyUrl: videoUrl,
+      encodingStatus: "completed",
+    });
+
+    // Delete local file safely
+    await fs.unlink(localPath).catch(() => {});
+
+    res.json({ success: true, url: videoUrl });
+  } catch (err) {
+    console.error("Error uploading video to S3:", err);
+    res.status(500).json({ error: "Failed to upload to S3" });
+  }
+};
+
+export const checkApiVideoStatus = async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    if (!videoId) {
+      return res.status(400).json({ success: false, error: 'Missing video ID' });
+    }
+
+    // Find the media in DB
+    const media = await Media.findOne({ renderId: videoId });
+    if (!media) {
+      return res.status(404).json({ success: false, error: 'Video not found' });
+    }
+
+    // Get signed URL for playback
+    const signedUrl = await getSignedUrlFromS3(videoId);
+
+    res.json({
+      success: true,
+      playbackUrl: signedUrl,
+      metadata: {
+        thumbnail: media.thumbnail || null,
+        transcript: media.transcript || null,
+        tags: media.tags || [],
+        emotions: media.emotions || [],
+        story: media.story || '',
+        storyUrl: media.storyUrl || '',
+        encodingStatus: media.encodingStatus || 'processing',
+        createdAt: media.createdAt
+      }
+    });
+  } catch (err) {
+    console.error('❌ Error in /status route:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
+export const getAllVideos = async (req, res) => {
+  try {
+    const videos = await Media.find({ mediaType: 'video' })
+      .sort({ createdAt: -1 })
+      .select('title description storyUrl likes shares views createdAt');
+
+    res.json({ success: true, videos });
+  } catch (err) {
+    console.error('❌ Error fetching videos:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
+
 
 // export const generateApiVideo = async (req, res) => {
 
@@ -89,87 +266,87 @@ const __dirname = path.dirname(__filename);
  * 
  * aws s3  Refresh signed URL for an existing  video
  */
-export const generateApiVideo = async (req, res) => {
-  try {
-    const { imageNames, audioName, mediaId } = req.body;
-    if (!imageNames?.length || !mediaId) {
-      return res.status(400).json({ success: false, error: "Missing images or mediaId" });
-    }
+// export const generateApiVideo = async (req, res) => {
+//   try {
+//     const { imageNames, audioName, mediaId } = req.body;
+//     if (!imageNames?.length || !mediaId) {
+//       return res.status(400).json({ success: false, error: "Missing images or mediaId" });
+//     }
 
-    const uploadsDir = path.join(__dirname, "..", "uploads");
-    const audioDir = path.join(uploadsDir, "audio");
-    await fs.mkdir(audioDir, { recursive: true });
+//     const uploadsDir = path.join(__dirname, "..", "uploads");
+//     const audioDir = path.join(uploadsDir, "audio");
+//     await fs.mkdir(audioDir, { recursive: true });
 
-    // Resolve image paths
-    const imagePaths = imageNames.map(name => path.join(uploadsDir, path.basename(name)));
-    for (const imgPath of imagePaths) {
-      if (!existsSync(imgPath)) return res.status(404).json({ success: false, error: `Image not found: ${imgPath}` });
-    }
+//     // Resolve image paths
+//     const imagePaths = imageNames.map(name => path.join(uploadsDir, path.basename(name)));
+//     for (const imgPath of imagePaths) {
+//       if (!existsSync(imgPath)) return res.status(404).json({ success: false, error: `Image not found: ${imgPath}` });
+//     }
 
-    // Fetch media
-    const media = await Media.findById(mediaId);
-    if (!media) return res.status(404).json({ success: false, error: "Media not found" });
+//     // Fetch media
+//     const media = await Media.findById(mediaId);
+//     if (!media) return res.status(404).json({ success: false, error: "Media not found" });
 
-    // Determine audio
-    let audioPath;
-    if (media.voiceUrl) {
-      audioPath = path.join(audioDir, path.basename(media.voiceUrl));
-      if (!existsSync(audioPath)) return res.status(404).json({ success: false, error: "Stored audio not found" });
-    } else if (audioName) {
-      audioPath = path.join(audioDir, path.basename(audioName));
-      if (!existsSync(audioPath)) return res.status(404).json({ success: false, error: "Provided audio not found" });
-    } else {
-      const ttsFileName = `tts-${mediaId}.mp3`;
-      audioPath = path.join(audioDir, ttsFileName);
-      await generateVoiceOver(media.story || media.description || "Hello world", ttsFileName);
-      media.voiceUrl = `/uploads/audio/${ttsFileName}`;
-      await media.save();
-    }
+//     // Determine audio
+//     let audioPath;
+//     if (media.voiceUrl) {
+//       audioPath = path.join(audioDir, path.basename(media.voiceUrl));
+//       if (!existsSync(audioPath)) return res.status(404).json({ success: false, error: "Stored audio not found" });
+//     } else if (audioName) {
+//       audioPath = path.join(audioDir, path.basename(audioName));
+//       if (!existsSync(audioPath)) return res.status(404).json({ success: false, error: "Provided audio not found" });
+//     } else {
+//       const ttsFileName = `tts-${mediaId}.mp3`;
+//       audioPath = path.join(audioDir, ttsFileName);
+//       await generateVoiceOver(media.story || media.description || "Hello world", ttsFileName);
+//       media.voiceUrl = `/uploads/audio/${ttsFileName}`;
+//       await media.save();
+//     }
 
-    // Generate video
-    const tempOutput = path.join(uploadsDir, `temp-${uuidv4()}.mp4`);
-    await generateVideo(imagePaths, audioPath, tempOutput, 10);
+//     // Generate video
+//     const tempOutput = path.join(uploadsDir, `temp-${uuidv4()}.mp4`);
+//     await generateVideo(imagePaths, audioPath, tempOutput, 10);
 
-    // Generate thumbnail
-    const localThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
-    await generateThumbnail(tempOutput, localThumbPath);
+//     // Generate thumbnail
+//     const localThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
+//     await generateThumbnail(tempOutput, localThumbPath);
 
-    // Upload video & thumbnail to S3
-    const videoUrl = await uploadFileToS3(tempOutput, `videos/${path.basename(tempOutput)}`);
-    const thumbUrl = await uploadFileToS3(localThumbPath, `thumbnails/${path.basename(localThumbPath)}`);
+//     // Upload video & thumbnail to S3
+//     const videoUrl = await uploadFileToS3(tempOutput, `videos/${path.basename(tempOutput)}`);
+//     const thumbUrl = await uploadFileToS3(localThumbPath, `thumbnails/${path.basename(localThumbPath)}`);
 
-    // Save to DB
-    const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
-    await Media.findByIdAndUpdate(mediaId, {
-      storyUrl: videoUrl,
-      thumbnailUrl: thumbUrl,
-      transcript: "", // optional placeholder
-      tags: [],
-      emotions: [],
-      encodingStatus: "completed",
-      mediaType: "video",
-      shares: 1,
-      createdAt: new Date(),
-    });
+//     // Save to DB
+//     const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
+//     await Media.findByIdAndUpdate(mediaId, {
+//       storyUrl: videoUrl,
+//       thumbnailUrl: thumbUrl,
+//       transcript: "", // optional placeholder
+//       tags: [],
+//       emotions: [],
+//       encodingStatus: "completed",
+//       mediaType: "video",
+//       shares: 1,
+//       createdAt: new Date(),
+//     });
 
-    // Cleanup temp files safely
-    await Promise.all([
-      fs.unlink(tempOutput).catch(() => {}),
-      fs.unlink(localThumbPath).catch(() => {})
-    ]);
+//     // Cleanup temp files safely
+//     await Promise.all([
+//       fs.unlink(tempOutput).catch(() => {}),
+//       fs.unlink(localThumbPath).catch(() => {})
+//     ]);
 
-    res.json({
-      success: true,
-      videoUrl,
-      thumbnailUrl: thumbUrl,
-      shortUrl: `${FRONTEND_URL}/m/${mediaId}`,
-    });
+//     res.json({
+//       success: true,
+//       videoUrl,
+//       thumbnailUrl: thumbUrl,
+//       shortUrl: `${FRONTEND_URL}/m/${mediaId}`,
+//     });
 
-  } catch (err) {
-    console.error("❌ Video generation failed:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
+//   } catch (err) {
+//     console.error("❌ Video generation failed:", err);
+//     res.status(500).json({ success: false, error: err.message });
+//   }
+// };
 
 
 
@@ -268,80 +445,3 @@ export const generateApiVideo = async (req, res) => {
 //     res.status(500).json({ success: false, error: err.message });
 //   }
 // };
-
-
-export const checkApiVideoStatus = async (req, res) => {
-  try {
-    const { videoId } = req.params;
-    if (!videoId) {
-      return res.status(400).json({ success: false, error: 'Missing video ID' });
-    }
-
-    // Find the media in DB
-    const media = await Media.findOne({ renderId: videoId });
-    if (!media) {
-      return res.status(404).json({ success: false, error: 'Video not found' });
-    }
-
-    // Get signed URL for playback
-    const signedUrl = await getSignedUrlFromS3(videoId);
-
-    res.json({
-      success: true,
-      playbackUrl: signedUrl,
-      metadata: {
-        thumbnail: media.thumbnail || null,
-        transcript: media.transcript || null,
-        tags: media.tags || [],
-        emotions: media.emotions || [],
-        story: media.story || '',
-        storyUrl: media.storyUrl || '',
-        encodingStatus: media.encodingStatus || 'processing',
-        createdAt: media.createdAt
-      }
-    });
-  } catch (err) {
-    console.error('❌ Error in /status route:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-
-export const getAllVideos = async (req, res) => {
-  try {
-    const videos = await Media.find({ mediaType: 'video' })
-      .sort({ createdAt: -1 })
-      .select('title description storyUrl likes shares views createdAt');
-
-    res.json({ success: true, videos });
-  } catch (err) {
-    console.error('❌ Error fetching videos:', err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
-
-
-export const saveFinalVideo = async (req, res) => {
-  try {
-    const { mediaId, localPath } = req.body; // localPath: where FFmpeg saved the file
-    if (!fs.existsSync(localPath)) {
-      return res.status(400).json({ error: "Video file not found" });
-    }
-
-    const s3Key = `videos/${path.basename(localPath)}`;
-    const videoUrl = await uploadFileToS3(localPath, s3Key);
-
-    await Media.findByIdAndUpdate(mediaId, {
-      storyUrl: videoUrl,
-      encodingStatus: "completed",
-    });
-
-    // delete local file to save space
-    fs.unlinkSync(localPath);
-
-    res.json({ success: true, url: videoUrl });
-  } catch (err) {
-    console.error("Error uploading video to S3:", err);
-    res.status(500).json({ error: "Failed to upload to S3" });
-  }
-};
