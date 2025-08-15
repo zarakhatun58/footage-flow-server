@@ -17,11 +17,9 @@ const s3 = new S3Client({
 });
 
 
-// Helper: escape for ffmpeg drawtext
 const escapeFF = (txt = "") =>
   txt.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
 
-// Helper: get audio duration
 const getAudioDuration = (audioPath) =>
   new Promise((resolve, reject) => {
     ffmpeg.ffprobe(audioPath, (err, metadata) => {
@@ -30,17 +28,18 @@ const getAudioDuration = (audioPath) =>
     });
   });
 
-// Helper: download remote file
 const downloadFile = (url, dest) =>
   new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
-    https.get(url, (response) => {
-      if (response.statusCode !== 200) {
-        return reject(new Error(`Failed to download: ${url}`));
-      }
-      response.pipe(file);
-      file.on("finish", () => file.close(resolve));
-    }).on("error", reject);
+    https
+      .get(url, (response) => {
+        if (response.statusCode !== 200) {
+          return reject(new Error(`Failed to download: ${url}`));
+        }
+        response.pipe(file);
+        file.on("finish", () => file.close(resolve));
+      })
+      .on("error", reject);
   });
 
 export const generateVideoToS3 = async ({
@@ -55,7 +54,6 @@ export const generateVideoToS3 = async ({
   story = "",
   tag = "",
 }) => {
-  // 1️⃣ Ensure local files exist (download if needed)
   imagePaths = imagePaths.filter((img) => fs.existsSync(img));
   if (imagePaths.length === 0) throw new Error("No valid images found.");
 
@@ -70,7 +68,6 @@ export const generateVideoToS3 = async ({
     throw new Error(`Audio file not found at ${localAudioPath}`);
   }
 
-  // 2️⃣ Match number of images to audio length
   const audioDuration = await getAudioDuration(localAudioPath);
   const neededImages = Math.max(1, Math.ceil(audioDuration / perImageDuration));
   if (imagePaths.length < neededImages) {
@@ -78,7 +75,6 @@ export const generateVideoToS3 = async ({
     imagePaths = Array(repeats).fill(imagePaths).flat().slice(0, neededImages);
   }
 
-  // 3️⃣ Build drawtext filters
   const drawText = [];
   if (title)
     drawText.push(
@@ -100,11 +96,11 @@ export const generateVideoToS3 = async ({
     `drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`
   );
 
+  // Always ensure even dimensions for H.264
   const scaleFilter = targetWidth
-    ? `scale=${targetWidth}:-2`
+    ? `scale=${targetWidth}:-2,scale=trunc(iw/2)*2:trunc(ih/2)*2`
     : "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
-  // 4️⃣ Stream video directly to S3
   const pass = new PassThrough();
 
   const command = ffmpeg();
@@ -113,10 +109,8 @@ export const generateVideoToS3 = async ({
   );
   command.input(localAudioPath);
 
-  const filters = [scaleFilter, ...drawText];
-
   command
-    .complexFilter(filters)
+    .complexFilter([scaleFilter, ...drawText])
     .videoCodec("libx264")
     .audioCodec("aac")
     .outputOptions([
@@ -133,14 +127,18 @@ export const generateVideoToS3 = async ({
     })
     .pipe(pass, { end: true });
 
-  await s3.send(
-    new PutObjectCommand({
+  // Multipart upload to avoid ContentLength requirement
+  const upload = new Upload({
+    client: s3,
+    params: {
       Bucket: s3Bucket,
       Key: s3Key,
       Body: pass,
       ContentType: "video/mp4",
-    })
-  );
+    },
+  });
+
+  await upload.done();
 
   console.log(`✅ Uploaded to s3://${s3Bucket}/${s3Key}`);
   return `https://${s3Bucket}.s3.amazonaws.com/${s3Key}`;
