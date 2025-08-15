@@ -8,7 +8,7 @@ import visionClient from '../utils/visionClient.js';
 import { transcribeAudio } from '../utils/transcriptionService.js';
 import { createVideoWithVoice } from '../utils/shotstackService.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
-import { uploadFileToS3 } from '../utils/uploadToS3.js';
+import { generateVideoStreamToS3 } from '../utils/uploadToS3.js';
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'uploads/'),
@@ -213,7 +213,7 @@ export const handleUpload = async (req, res) => {
         if (mediaType === 'video') {
           if (isFinal) {
             const s3Key = `final-videos/${file.filename}`;
-            const s3Url = await uploadFileToS3(filePath, s3Key);
+            const s3Url = await generateVideoStreamToS3(filePath, s3Key);
             mediaDoc.storyUrl = s3Url;
 
             // optional: delete local file after S3 upload
