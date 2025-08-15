@@ -9,7 +9,7 @@ import { uploadFileToS3 } from '../utils/uploadToS3.js';
 import { generateThumbnail } from '../utils/generateThumbnail.js';
 import { getSignedUrlFromS3 } from '../utils/s3Client.js';
 import { v4 as uuidv4 } from 'uuid';
-
+import ffmpeg from 'fluent-ffmpeg';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +21,19 @@ const fileExists = async (filePath) => {
   } catch {
     return false;
   }
+};
+
+// Helper to get audio duration in seconds
+const getAudioDuration = (filePath) => {
+  return new Promise((resolve) => {
+    ffmpeg.ffprobe(filePath, (err, metadata) => {
+      if (err) {
+        console.warn("⚠️ Could not get audio duration:", err);
+        return resolve(0);
+      }
+      resolve(metadata.format?.duration || 0);
+    });
+  });
 };
 
 export const generateApiVideo = async (req, res) => {
@@ -60,17 +73,20 @@ export const generateApiVideo = async (req, res) => {
         return res.status(404).json({ success: false, error: "Provided audio not found" });
       }
     } else {
-      // Generate TTS
+      // Generate TTS directly into audioDir
       const ttsFileName = `tts-${mediaId}.mp3`;
       audioPath = path.join(audioDir, ttsFileName);
-      await generateVoiceOver(media.story || media.description || "Hello world", ttsFileName);
+      await generateVoiceOver(media.story || media.description || "Hello world", audioPath);
       media.voiceUrl = `/uploads/audio/${ttsFileName}`;
       await media.save();
     }
 
+    // Get dynamic video duration from audio length
+    const audioDuration = await getAudioDuration(audioPath);
+
     // Generate video
     const tempOutput = path.join(uploadsDir, `temp-${uuidv4()}.mp4`);
-    await generateVideo(imagePaths, audioPath, tempOutput, 10);
+    await generateVideo(imagePaths, audioPath, tempOutput, audioDuration);
 
     // Generate thumbnail
     const localThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
@@ -94,7 +110,7 @@ export const generateApiVideo = async (req, res) => {
       createdAt: new Date(),
     });
 
-    // Cleanup temp files safely
+    // Cleanup temp files
     await Promise.all([
       fs.unlink(tempOutput).catch(() => {}),
       fs.unlink(localThumbPath).catch(() => {}),
