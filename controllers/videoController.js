@@ -36,8 +36,6 @@ export const generateApiVideo = async (req, res) => {
 
     const uploadsDir = path.join(process.cwd(), "uploads");
     const audioDir = path.join(uploadsDir, "audio");
-   await fs.mkdir(audioDir, { recursive: true });
-
 
     const imagePaths = imageNames.map((name) =>
       path.join(uploadsDir, path.basename(name))
@@ -83,8 +81,8 @@ export const generateApiVideo = async (req, res) => {
     const s3ThumbKey = `thumbnails/${path.basename(tempThumbPath)}`;
     const thumbnailUrl = await uploadFileToS3(tempThumbPath, s3Bucket, s3ThumbKey);
 
-    await fs.promises.unlink(tempThumbPath).catch(() => {});
-    await fs.promises.unlink(localVideoPath).catch(() => {});
+    await fs.unlink(tempThumbPath).catch(() => {});
+    await fs.unlink(localVideoPath).catch(() => {});
 
     const videoUrl = fileUrl || `https://${s3Bucket}.s3.amazonaws.com/${s3VideoKey}`;
 
@@ -117,6 +115,7 @@ export const generateApiVideo = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
 
 
 
