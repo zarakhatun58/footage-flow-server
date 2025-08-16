@@ -34,102 +34,76 @@ export const generateApiVideo = async (req, res) => {
       });
     }
 
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    const audioDir = path.join(uploadsDir, "audio");
-    await fs.mkdir(audioDir, { recursive: true });
+    // Respond immediately
+    res.json({ success: true, message: "Video generation started", mediaId });
 
-    // Resolve image paths (must exist locally)
-    const imagePaths = imageNames.map((name) =>
-      path.join(uploadsDir, path.basename(name))
-    );
+    // Continue async work
+    (async () => {
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      const audioDir = path.join(uploadsDir, "audio");
+      await fs.mkdir(audioDir, { recursive: true });
 
-    // Fetch media record
-    const media = await Media.findById(mediaId);
-    if (!media) {
-      return res.status(404).json({ success: false, error: "Media not found" });
-    }
-
-    // Determine audio source (local path OR remote URL)
-    let audioPath;
-    if (audioName) {
-      // Local uploaded audio
-      audioPath = path.join(audioDir, path.basename(audioName));
-    } else if (media.voiceUrl) {
-      // If it's already a full URL, keep it as URL; if relative, treat as local
-      audioPath = /^https?:\/\//.test(media.voiceUrl)
-        ? media.voiceUrl
-        : path.join(audioDir, path.basename(media.voiceUrl));
-    } else {
-      // No audio exists — generate TTS locally
-      audioPath = path.join(audioDir, `tts-${mediaId}.mp3`);
-      await generateVoiceOver(
-        media.story || media.description || "Hello world",
-        audioPath
+      const imagePaths = imageNames.map((name) =>
+        path.join(uploadsDir, path.basename(name))
       );
-      media.voiceUrl = `/uploads/audio/${path.basename(audioPath)}`;
-      await media.save();
-    }
 
-    // Upload video directly to S3
-    const s3Bucket = process.env.AWS_BUCKET_NAME;
-    const s3VideoKey = `videos/video-${uuidv4()}.mp4`;
+      const media = await Media.findById(mediaId);
+      if (!media) return;
 
-    const { fileUrl, localPath: localVideoPath } = await generateVideoToS3({
-      imagePaths,
-      audioPath,
-      s3Bucket,
-      s3Key: s3VideoKey,
-      perImageDuration: 2,
-      targetWidth: 1280,
-      title: title || media.title,
-      emotion: "",
-      story: media.story || "",
-      tag: "",
-    });
+      let audioPath;
+      if (audioName) {
+        audioPath = path.join(audioDir, path.basename(audioName));
+      } else if (media.voiceUrl) {
+        audioPath = /^https?:\/\//.test(media.voiceUrl)
+          ? media.voiceUrl
+          : path.join(audioDir, path.basename(media.voiceUrl));
+      } else {
+        audioPath = path.join(audioDir, `tts-${mediaId}.mp3`);
+        await generateVoiceOver(media.story || media.description || "Hello world", audioPath);
+        media.voiceUrl = `/uploads/audio/${path.basename(audioPath)}`;
+        await media.save();
+      }
 
-    // Generate thumbnail & upload
-    const tempThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
-    await generateThumbnail(localVideoPath, tempThumbPath);
-    const s3ThumbKey = `thumbnails/${path.basename(tempThumbPath)}`;
-    const thumbnailUrl = await uploadFileToS3(tempThumbPath, s3Bucket, s3ThumbKey);
+      const s3Bucket = process.env.AWS_BUCKET_NAME;
+      const s3VideoKey = `videos/video-${uuidv4()}.mp4`;
 
-    // cleanup temp files
-    await fs.unlink(tempThumbPath).catch(() => { });
-    await fs.unlink(localVideoPath).catch(() => { });
+      const { fileUrl, localPath: localVideoPath } = await generateVideoToS3({
+        imagePaths,
+        audioPath,
+        s3Bucket,
+        s3Key: s3VideoKey,
+        perImageDuration: 2,
+        targetWidth: 1280,
+        title: title || media.title,
+        emotion: "",
+        story: media.story || "",
+        tag: "",
+      });
 
-    const videoUrl = fileUrl;
-    // Update DB
-    // const videoUrl = `https://${s3Bucket}.s3.amazonaws.com/${s3VideoKey}`;
-    await Media.findByIdAndUpdate(mediaId, {
-      storyUrl: videoUrl,
-      thumbnailUrl,
-      transcript: media.story || "",
-      tags: ["example", "tag"],
-      emotions: ["happy"],
-      encodingStatus: "completed",
-      mediaType: "video",
-      updatedAt: new Date(),
-    });
+      const tempThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
+      await generateThumbnail(localVideoPath, tempThumbPath);
+      const s3ThumbKey = `thumbnails/${path.basename(tempThumbPath)}`;
+      const thumbnailUrl = await uploadFileToS3(tempThumbPath, s3Bucket, s3ThumbKey);
 
-    // Send response
-    const FRONTEND_URL =
-      process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
+      await fs.unlink(tempThumbPath).catch(() => {});
+      await fs.unlink(localVideoPath).catch(() => {});
 
-    res.json({
-      success: true,
-      videoUrl,
-      thumbnailUrl,
-      shortUrl: `${FRONTEND_URL}/m/${mediaId}`,
-      transcript: media.story || "",
-      tags: ["example", "tag"],
-      emotions: ["happy"],
-      title: title || media.title,
-    });
+      await Media.findByIdAndUpdate(mediaId, {
+        storyUrl: fileUrl,
+        thumbnailUrl,
+        transcript: media.story || "",
+        tags: ["example", "tag"],
+        emotions: ["happy"],
+        encodingStatus: "completed",
+        mediaType: "video",
+        updatedAt: new Date(),
+      });
+    })();
   } catch (err) {
     console.error("❌ Video generation failed:", err);
-    res.status(500).json({ success: false, error: err.message });
   }
 };
+
 
 
 
