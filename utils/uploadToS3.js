@@ -3,11 +3,14 @@ import path from "path";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import ffmpegPkg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
+import https from "https";
 import { PassThrough } from "stream";
 import os from "os";
 
 const ffmpeg = ffmpegPkg;
-if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
+// if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
+// configure ffmpeg path if needed
+if (process.env.FFMPEG_PATH) ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
 
 const s3 = new S3Client({
   region: process.env.AWS_REGION,
@@ -77,8 +80,9 @@ export const generateVideoToS3 = async ({
   tag = "",
 }) => {
   imagePaths = imagePaths.filter((img) => fs.existsSync(img));
-  if (imagePaths.length === 0) throw new Error("No valid images found.");
+  if (!imagePaths.length) throw new Error("No valid images found.");
 
+  // download audio if needed
   let localAudioPath = audioPath;
   if (/^https?:\/\//.test(audioPath)) {
     const audioDir = path.join(process.cwd(), "tmp-audio");
@@ -86,9 +90,7 @@ export const generateVideoToS3 = async ({
     localAudioPath = path.join(audioDir, path.basename(audioPath));
     await downloadFile(audioPath, localAudioPath);
   }
-  if (!fs.existsSync(localAudioPath)) {
-    throw new Error(`Audio file not found at ${localAudioPath}`);
-  }
+  if (!fs.existsSync(localAudioPath)) throw new Error(`Audio file not found at ${localAudioPath}`);
 
   const audioDuration = await getAudioDuration(localAudioPath);
   const neededImages = Math.max(1, Math.ceil(audioDuration / perImageDuration));
@@ -114,16 +116,14 @@ export const generateVideoToS3 = async ({
     drawTextFilters.push(
       `drawtext=text='${escapeFF(tag)}':fontcolor=cyan:fontsize=28:box=1:boxcolor=black@0.5:x=20:y=h-th-20`
     );
+
   drawTextFilters.push(
     `drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`
   );
 
-  const scalePadFilter = `
-scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
-,scale=trunc(iw/2)*2:trunc(ih/2)*2
-`;
+  const scalePadFilter = `scale=${targetWidth}:-2:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
 
-  const finalFilters = [scalePadFilter, ...drawTextFilters].join(",");
+  const filterStr = [scalePadFilter, ...drawTextFilters].join(",");
 
   const tmpFile = path.join(os.tmpdir(), `video-${Date.now()}.mp4`);
 
@@ -136,17 +136,10 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
     command.input(localAudioPath);
 
     command
-      .complexFilter(finalFilters)
+      .complexFilter(filterStr)
       .videoCodec("libx264")
       .audioCodec("aac")
-      .outputOptions([
-        "-preset ultrafast",
-        "-pix_fmt yuv420p",
-        "-movflags +faststart",
-        "-shortest",
-        "-map v:0",
-        "-map a?",
-      ])
+      .outputOptions(["-preset ultrafast", "-pix_fmt yuv420p", "-movflags +faststart", "-shortest"])
       .format("mp4")
       .on("start", (cmd) => console.log("🎬 FFmpeg:", cmd))
       .on("error", (err, stdout, stderr) => {
@@ -158,10 +151,9 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
       .save(tmpFile);
   });
 
-  // ✅ use helper here
   const fileUrl = await uploadFileToS3(tmpFile, s3Bucket, s3Key);
-
   console.log(`✅ Uploaded to ${fileUrl}`);
+
   return { fileUrl, localPath: tmpFile };
 };
 
