@@ -97,9 +97,10 @@ export const generateVideoToS3 = async ({
     `drawtext=text='%{pts\\:hms}':fontcolor=white:fontsize=32:box=1:boxcolor=black@0.5:x=w-tw-20:y=h-th-20`
   );
 
-  const scalePadFilter = targetWidth
-    ? `scale=${targetWidth}:-2:force_original_aspect_ratio=decrease,pad=trunc(iw/2)*2:trunc(ih/2)*2`
-    : `scale=trunc(iw/2)*2:trunc(ih/2)*2`;
+  const scalePadFilter = `
+scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
+,scale=trunc(iw/2)*2:trunc(ih/2)*2
+`;
 
   const finalFilters = [scalePadFilter, ...drawTextFilters];
 
@@ -143,7 +144,7 @@ export const generateVideoToS3 = async ({
     })
   );
 
-  fs.unlink(tmpFile, () => {});
+  fs.unlink(tmpFile, () => { });
   console.log(`✅ Uploaded to s3://${s3Bucket}/${s3Key}`);
   return `https://${s3Bucket}.s3.amazonaws.com/${s3Key}`;
 };
