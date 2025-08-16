@@ -144,7 +144,7 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
         "-pix_fmt yuv420p",
         "-movflags +faststart",
         "-shortest",
-        "-map 0:v",
+        "-map v:0",
         "-map a?",
       ])
       .format("mp4")
