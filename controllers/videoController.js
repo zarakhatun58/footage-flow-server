@@ -1,6 +1,6 @@
 
 import path from 'path';
-import fs from 'fs/promises';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
@@ -33,7 +33,7 @@ export const generateApiVideo = async (req, res) => {
 
     const uploadsDir = path.join(process.cwd(), "uploads");
     const audioDir = path.join(uploadsDir, "audio");
-    await fs.promises.mkdir(audioDir, { recursive: true });
+   await fs.promises.mkdir(audioDir, { recursive: true });
 
     // ✅ resolve image paths
     const imagePaths = [];
