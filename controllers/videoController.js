@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
-import { generateVideoToS3 } from '../utils/uploadToS3.js';
+import { generateVideoToS3, uploadFileToS3 } from '../utils/uploadToS3.js';
 import { generateThumbnail } from '../utils/generateThumbnail.js';
 import { getSignedUrlFromS3 } from '../utils/s3Client.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -74,9 +74,9 @@ export const generateApiVideo = async (req, res) => {
     const s3Bucket = process.env.AWS_BUCKET_NAME;
     const s3VideoKey = `videos/video-${uuidv4()}.mp4`;
 
-    await generateVideoToS3({
+    const { fileUrl, localPath: localVideoPath } = await generateVideoToS3({
       imagePaths,
-      audioPath, // now safe: can be local or remote URL
+      audioPath,
       s3Bucket,
       s3Key: s3VideoKey,
       perImageDuration: 2,
@@ -89,13 +89,17 @@ export const generateApiVideo = async (req, res) => {
 
     // Generate thumbnail & upload
     const tempThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
-    await generateThumbnail(audioPath, tempThumbPath);
+    await generateThumbnail(localVideoPath, tempThumbPath);
     const s3ThumbKey = `thumbnails/${path.basename(tempThumbPath)}`;
     const thumbnailUrl = await uploadFileToS3(tempThumbPath, s3Bucket, s3ThumbKey);
-    await fs.unlink(tempThumbPath).catch(() => {});
 
+    // cleanup temp files
+    await fs.unlink(tempThumbPath).catch(() => { });
+    await fs.unlink(localVideoPath).catch(() => { });
+
+    const videoUrl = fileUrl;
     // Update DB
-    const videoUrl = `https://${s3Bucket}.s3.amazonaws.com/${s3VideoKey}`;
+    // const videoUrl = `https://${s3Bucket}.s3.amazonaws.com/${s3VideoKey}`;
     await Media.findByIdAndUpdate(mediaId, {
       storyUrl: videoUrl,
       thumbnailUrl,
@@ -363,7 +367,7 @@ export const getAllVideos = async (req, res) => {
 // };
 
 /**
- * 
+ *
  * aws s3  Refresh signed URL for an existing  video
  */
 // export const generateApiVideo = async (req, res) => {

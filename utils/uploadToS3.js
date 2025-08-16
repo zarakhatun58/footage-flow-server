@@ -17,6 +17,27 @@ const s3 = new S3Client({
   },
 });
 
+// ✅ helper for consistent S3 upload
+export const uploadFileToS3 = async (filePath, bucket, key) => {
+  const fileStream = fs.createReadStream(filePath);
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: fileStream,
+      ContentType:
+        path.extname(filePath) === ".mp4"
+          ? "video/mp4"
+          : path.extname(filePath) === ".jpg" ||
+            path.extname(filePath) === ".jpeg"
+          ? "image/jpeg"
+          : "application/octet-stream",
+    })
+  );
+
+  return `https://${bucket}.s3.amazonaws.com/${key}`;
+};
 
 const escapeFF = (txt = "") =>
   txt.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
@@ -102,7 +123,7 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
 ,scale=trunc(iw/2)*2:trunc(ih/2)*2
 `;
 
- const finalFilters = [scalePadFilter, ...drawTextFilters].join(",");
+  const finalFilters = [scalePadFilter, ...drawTextFilters].join(",");
 
   const tmpFile = path.join(os.tmpdir(), `video-${Date.now()}.mp4`);
 
@@ -135,18 +156,11 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
       .save(tmpFile);
   });
 
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: s3Bucket,
-      Key: s3Key,
-      Body: fs.createReadStream(tmpFile),
-      ContentType: "video/mp4",
-    })
-  );
+  // ✅ use helper here
+const fileUrl = await uploadFileToS3(tmpFile, s3Bucket, s3Key);
 
-  fs.unlink(tmpFile, () => { });
-  console.log(`✅ Uploaded to s3://${s3Bucket}/${s3Key}`);
-  return `https://${s3Bucket}.s3.amazonaws.com/${s3Key}`;
+console.log(`✅ Uploaded to ${fileUrl}`);
+return { fileUrl, localPath: tmpFile };
 };
 
 
