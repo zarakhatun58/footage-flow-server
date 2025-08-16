@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
-import { generateVideoToS3, uploadFileToS3 } from '../utils/uploadToS3.js';
+import { downloadFile, generateVideoToS3, uploadFileToS3 } from '../utils/uploadToS3.js';
 import { generateThumbnail } from '../utils/generateThumbnail.js';
 import { getSignedUrlFromS3 } from '../utils/s3Client.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -37,23 +37,22 @@ export const generateApiVideo = async (req, res) => {
     const uploadsDir = path.join(process.cwd(), "uploads");
     const audioDir = path.join(uploadsDir, "audio");
 
-    // Resolve image paths automatically
-    const imagePaths = imageNames.map((name) =>
-      path.join(uploadsDir, path.basename(name))
-    );
-
-    // Verify images exist
-    const validImages = await Promise.all(
-      imagePaths.map(async (imgPath) => {
+    // Resolve image paths (local or download URL)
+    const filteredImages = [];
+    for (const name of imageNames) {
+      if (/^https?:\/\//.test(name)) {
+        const tempPath = path.join(uploadsDir, `${uuidv4()}-${path.basename(name)}`);
+        await downloadFile(name, tempPath);
+        filteredImages.push(tempPath);
+      } else {
+        const imgPath = path.join(uploadsDir, path.basename(name));
         try {
           await fs.promises.access(imgPath);
-          return imgPath;
-        } catch {
-          return null;
-        }
-      })
-    );
-    const filteredImages = validImages.filter(Boolean);
+          filteredImages.push(imgPath);
+        } catch {}
+      }
+    }
+
     if (!filteredImages.length) {
       return res.status(400).json({ success: false, error: "No valid images found." });
     }
@@ -78,11 +77,12 @@ export const generateApiVideo = async (req, res) => {
     if (!audioPath) {
       const ttsText = media.story || media.description || "Hello world";
       audioPath = path.join(audioDir, `tts-${mediaId}.mp3`);
-      await generateVoiceOver(ttsText, audioPath); // your TTS function
+      await generateVoiceOver(ttsText, audioPath);
       media.voiceUrl = `/uploads/audio/${path.basename(audioPath)}`;
       await media.save();
     }
 
+    // Generate video
     const s3Bucket = process.env.AWS_BUCKET_NAME;
     const s3VideoKey = `videos/video-${uuidv4()}.mp4`;
 
@@ -99,11 +99,13 @@ export const generateApiVideo = async (req, res) => {
       tag: "",
     });
 
+    // Generate thumbnail
     const tempThumbPath = path.join(uploadsDir, `thumb-${uuidv4()}.jpg`);
     await generateThumbnail(localVideoPath, tempThumbPath);
     const s3ThumbKey = `thumbnails/${path.basename(tempThumbPath)}`;
     const thumbnailUrl = await uploadFileToS3(tempThumbPath, s3Bucket, s3ThumbKey);
 
+    // Cleanup temp files
     await fs.promises.unlink(tempThumbPath).catch(() => {});
     await fs.promises.unlink(localVideoPath).catch(() => {});
 

@@ -53,7 +53,7 @@ const getAudioDuration = (audioPath) =>
     });
   });
 
-const downloadFile = (url, dest) =>
+export const downloadFile = (url, dest) =>
   new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
     https
