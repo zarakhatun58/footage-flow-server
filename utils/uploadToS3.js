@@ -102,7 +102,7 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
 ,scale=trunc(iw/2)*2:trunc(ih/2)*2
 `;
 
-  const finalFilters = [scalePadFilter, ...drawTextFilters];
+ const finalFilters = [scalePadFilter, ...drawTextFilters].join(",");
 
   const tmpFile = path.join(os.tmpdir(), `video-${Date.now()}.mp4`);
 
