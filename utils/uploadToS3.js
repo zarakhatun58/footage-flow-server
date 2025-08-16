@@ -144,6 +144,8 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
         "-pix_fmt yuv420p",
         "-movflags +faststart",
         "-shortest",
+         "-map 0:v",
+    "-map 1:a",
       ])
       .format("mp4")
       .on("start", (cmd) => console.log("🎬 FFmpeg:", cmd))

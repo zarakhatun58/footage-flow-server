@@ -1,7 +1,7 @@
 // controllers/engagementController.js
 import Media from "../models/Media.js";
 
-const FRONTEND_URL = process.env.FRONTEND_URL || "https://your-frontend.example.com";
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
 
 // simple linear score; tweak weights anytime
 const calculateRankScore = ({ likes = 0, shares = 0, views = 0 }) =>
