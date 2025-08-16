@@ -33,9 +33,9 @@ export const generateApiVideo = async (req, res) => {
 
     const uploadsDir = path.join(process.cwd(), "uploads");
     const audioDir = path.join(uploadsDir, "audio");
-    await fs.mkdir(audioDir, { recursive: true });
+    await fs.promises.mkdir(audioDir, { recursive: true });
 
-    // ✅ resolve image paths (local or download URL)
+    // ✅ resolve image paths
     const imagePaths = [];
     for (const name of imageNames) {
       if (/^https?:\/\//.test(name)) {
@@ -51,11 +51,11 @@ export const generateApiVideo = async (req, res) => {
       }
     }
 
-    // ✅ fetch media
+    // ✅ fetch media doc
     const media = await Media.findById(mediaId);
     if (!media) return res.status(404).json({ success: false, error: "Media not found" });
 
-    // ✅ resolve audio path
+    // ✅ resolve audio
     let audioPath;
     if (media.voiceUrl) {
       if (/^https?:\/\//.test(media.voiceUrl)) {
@@ -84,31 +84,36 @@ export const generateApiVideo = async (req, res) => {
       return res.status(404).json({ success: false, error: `Audio not found: ${audioPath}` });
     }
 
-    // ✅ get duration
-    const audioDuration = await getAudioDuration(audioPath);
-
-    // ✅ generate video
-    const tempOutput = path.join(os.tmpdir(), `video-${uuidv4()}.mp4`);
-    await generateVideo(imagePaths, audioPath, tempOutput, audioDuration);
+    // ✅ generate video using your helper
+    const videoKey = `videos/video-${uuidv4()}.mp4`;
+    const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
+      imagePaths,
+      audioPath,
+      s3Bucket: process.env.AWS_BUCKET,
+      s3Key: videoKey,
+      title: media.title || "",
+      emotion: (media.emotions || [])[0] || "",
+      story: media.story || "",
+      tag: (media.tags || [])[0] || "",
+    });
 
     // ✅ thumbnail
     const localThumbPath = path.join(os.tmpdir(), `thumb-${uuidv4()}.jpg`);
-    await generateThumbnail(tempOutput, localThumbPath);
+    await generateThumbnail(localVideoPath, localThumbPath);
+    const thumbKey = `thumbnails/thumb-${uuidv4()}.jpg`;
+    const thumbUrl = await uploadFileToS3(localThumbPath, process.env.AWS_BUCKET, thumbKey);
 
-    // ✅ upload to S3
-    const videoUrl = await uploadFileToS3(tempOutput, `videos/${path.basename(tempOutput)}`);
-    const thumbUrl = await uploadFileToS3(localThumbPath, `thumbnails/${path.basename(localThumbPath)}`);
-
+    // ✅ update DB
     const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
     await Media.findByIdAndUpdate(mediaId, {
       storyUrl: videoUrl,
       thumbnailUrl: thumbUrl,
       transcript: "",
-      tags: [],
-      emotions: [],
+      tags: media.tags || [],
+      emotions: media.emotions || [],
       encodingStatus: "completed",
       mediaType: "video",
-      shares: 1,
+      shares: (media.shares || 0) + 1,
       createdAt: new Date(),
     });
 
