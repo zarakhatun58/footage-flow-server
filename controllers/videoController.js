@@ -37,25 +37,48 @@ export const generateApiVideo = async (req, res) => {
     const uploadsDir = path.join(process.cwd(), "uploads");
     const audioDir = path.join(uploadsDir, "audio");
 
+    // Resolve image paths automatically
     const imagePaths = imageNames.map((name) =>
       path.join(uploadsDir, path.basename(name))
     );
+
+    // Verify images exist
+    const validImages = await Promise.all(
+      imagePaths.map(async (imgPath) => {
+        try {
+          await fs.promises.access(imgPath);
+          return imgPath;
+        } catch {
+          return null;
+        }
+      })
+    );
+    const filteredImages = validImages.filter(Boolean);
+    if (!filteredImages.length) {
+      return res.status(400).json({ success: false, error: "No valid images found." });
+    }
 
     const media = await Media.findById(mediaId);
     if (!media) {
       return res.status(404).json({ success: false, error: "Media not found" });
     }
 
+    // Resolve or generate audio
     let audioPath;
     if (audioName) {
       audioPath = path.join(audioDir, path.basename(audioName));
-    } else if (media.voiceUrl) {
-      audioPath = /^https?:\/\//.test(media.voiceUrl)
-        ? media.voiceUrl
-        : path.join(audioDir, path.basename(media.voiceUrl));
-    } else {
+      try {
+        await fs.promises.access(audioPath);
+      } catch {
+        audioPath = /^https?:\/\//.test(audioName) ? audioName : null;
+      }
+    }
+
+    // Fallback: generate TTS if audio is missing
+    if (!audioPath) {
+      const ttsText = media.story || media.description || "Hello world";
       audioPath = path.join(audioDir, `tts-${mediaId}.mp3`);
-      await generateVoiceOver(media.story || media.description || "Hello world", audioPath);
+      await generateVoiceOver(ttsText, audioPath); // your TTS function
       media.voiceUrl = `/uploads/audio/${path.basename(audioPath)}`;
       await media.save();
     }
@@ -64,7 +87,7 @@ export const generateApiVideo = async (req, res) => {
     const s3VideoKey = `videos/video-${uuidv4()}.mp4`;
 
     const { fileUrl, localPath: localVideoPath } = await generateVideoToS3({
-      imagePaths,
+      imagePaths: filteredImages,
       audioPath,
       s3Bucket,
       s3Key: s3VideoKey,
@@ -81,8 +104,8 @@ export const generateApiVideo = async (req, res) => {
     const s3ThumbKey = `thumbnails/${path.basename(tempThumbPath)}`;
     const thumbnailUrl = await uploadFileToS3(tempThumbPath, s3Bucket, s3ThumbKey);
 
-    await fs.unlink(tempThumbPath).catch(() => {});
-    await fs.unlink(localVideoPath).catch(() => {});
+    await fs.promises.unlink(tempThumbPath).catch(() => {});
+    await fs.promises.unlink(localVideoPath).catch(() => {});
 
     const videoUrl = fileUrl || `https://${s3Bucket}.s3.amazonaws.com/${s3VideoKey}`;
 
@@ -98,7 +121,6 @@ export const generateApiVideo = async (req, res) => {
       updatedAt: new Date(),
     });
 
-    // Send full response with videoUrl
     res.json({
       success: true,
       videoUrl,
@@ -109,14 +131,11 @@ export const generateApiVideo = async (req, res) => {
       emotions: ["happy"],
       title: title || media.title,
     });
-
   } catch (err) {
     console.error("❌ Video generation failed:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
-
 
 
 
