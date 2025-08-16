@@ -31,8 +31,8 @@ export const uploadFileToS3 = async (filePath, bucket, key) => {
           ? "video/mp4"
           : path.extname(filePath) === ".jpg" ||
             path.extname(filePath) === ".jpeg"
-          ? "image/jpeg"
-          : "application/octet-stream",
+            ? "image/jpeg"
+            : "application/octet-stream",
     })
   );
 
@@ -144,8 +144,8 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
         "-pix_fmt yuv420p",
         "-movflags +faststart",
         "-shortest",
-         "-map 0:v",
-    "-map 1:a",
+        "-map 0:v",
+        "-map a?",
       ])
       .format("mp4")
       .on("start", (cmd) => console.log("🎬 FFmpeg:", cmd))
@@ -159,10 +159,10 @@ scale=${targetWidth}:-2:force_original_aspect_ratio=decrease
   });
 
   // ✅ use helper here
-const fileUrl = await uploadFileToS3(tmpFile, s3Bucket, s3Key);
+  const fileUrl = await uploadFileToS3(tmpFile, s3Bucket, s3Key);
 
-console.log(`✅ Uploaded to ${fileUrl}`);
-return { fileUrl, localPath: tmpFile };
+  console.log(`✅ Uploaded to ${fileUrl}`);
+  return { fileUrl, localPath: tmpFile };
 };
 
 
