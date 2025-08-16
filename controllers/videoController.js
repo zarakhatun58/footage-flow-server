@@ -36,7 +36,8 @@ export const generateApiVideo = async (req, res) => {
 
     const uploadsDir = path.join(process.cwd(), "uploads");
     const audioDir = path.join(uploadsDir, "audio");
-    await fs.promises.mkdir(audioDir, { recursive: true });
+   await fs.mkdir(audioDir, { recursive: true });
+
 
     const imagePaths = imageNames.map((name) =>
       path.join(uploadsDir, path.basename(name))
