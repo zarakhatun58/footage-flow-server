@@ -33,7 +33,7 @@ export const generateApiVideo = async (req, res) => {
 
     const uploadsDir = path.join(process.cwd(), "uploads");
     const audioDir = path.join(uploadsDir, "audio");
-   await fs.promises.mkdir(audioDir, { recursive: true });
+    await fs.promises.mkdir(audioDir, { recursive: true });
 
     // ✅ resolve image paths
     const imagePaths = [];
@@ -45,9 +45,13 @@ export const generateApiVideo = async (req, res) => {
       } else {
         const localPath = path.join(uploadsDir, path.basename(name));
         if (!(await fileExists(localPath))) {
-          return res.status(404).json({ success: false, error: `Image not found: ${localPath}` });
+          const url = `${process.env.API_PUBLIC_URL || "https://footage-flow-server.onrender.com"}/uploads/${path.basename(name)}`;
+          const tmpPath = path.join(os.tmpdir(), path.basename(name));
+          await downloadFile(url, tmpPath);
+          imagePaths.push(tmpPath);
+        } else {
+          imagePaths.push(localPath);
         }
-        imagePaths.push(localPath);
       }
     }
 
