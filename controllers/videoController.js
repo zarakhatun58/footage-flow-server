@@ -67,7 +67,15 @@ export const generateApiVideo = async (req, res) => {
         audioPath = path.join(os.tmpdir(), path.basename(media.voiceUrl));
         await downloadFile(media.voiceUrl, audioPath);
       } else {
-        audioPath = path.join(audioDir, path.basename(media.voiceUrl));
+        const audioFileName = path.basename(media.voiceUrl);
+        audioPath = path.join(audioDir, audioFileName);
+
+        if (!(await fileExists(audioPath))) {
+          const url = `${process.env.SERVER_URL || "https://footage-flow-server.onrender.com"}/uploads/audio/${audioFileName}`;
+          const tmpPath = path.join(os.tmpdir(), audioFileName);
+          await downloadFile(url, tmpPath);
+          audioPath = tmpPath; // use downloaded file
+        }
       }
     } else if (audioName) {
       if (/^https?:\/\//.test(audioName)) {
