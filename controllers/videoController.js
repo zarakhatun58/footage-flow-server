@@ -17,125 +17,162 @@ const __dirname = path.dirname(__filename);
 
 const fileExists = async (filePath) => {
   try {
-    await fs.access(filePath);
+    await fs.promises.access(filePath, fs.constants.F_OK);
     return true;
   } catch {
     return false;
   }
 };
 
+const isHttpUrl = (val) => !!(val && /^https?:\/\//i.test(val));
+
+const PUBLIC_URL = process.env.API_PUBLIC_URL || process.env.SERVER_URL || 'https://footage-flow-server.onrender.com';
+
+const resolveImagePaths = async (imageNames = [], uploadsDir) => {
+  const results = [];
+
+  for (const name of imageNames) {
+    try {
+      if (isHttpUrl(name)) {
+        const tmpPath = path.join(os.tmpdir(), path.basename(name));
+        await downloadFile(name, tmpPath);
+        results.push(tmpPath);
+        continue;
+      }
+
+      const localPath = path.join(uploadsDir, path.basename(name));
+      if (await fileExists(localPath)) {
+        results.push(localPath);
+        continue;
+      }
+
+      // fallback: download from public uploads endpoint
+      const url = `${PUBLIC_URL}/uploads/${path.basename(name)}`;
+      const tmpPath = path.join(os.tmpdir(), path.basename(name));
+      await downloadFile(url, tmpPath);
+      results.push(tmpPath);
+    } catch (err) {
+      // bubble up with context
+      throw new Error(`Failed to resolve/download image "${name}": ${err.message || err}`);
+    }
+  }
+
+  return results;
+};
+
+// ensures audio available locally: checks media.voiceUrl, then audioName, then TTS fallback
+const resolveAudioPath = async ({ media, audioName, audioDir }) => {
+  const ensureDownloaded = async (value) => {
+    // value may be full URL, or filename, or path
+    if (isHttpUrl(value)) {
+      const tmpPath = path.join(os.tmpdir(), path.basename(value));
+      await downloadFile(value, tmpPath);
+      return tmpPath;
+    }
+
+    const fileName = path.basename(value);
+    const local = path.join(audioDir, fileName);
+    if (await fileExists(local)) return local;
+
+    // fallback to public uploads audio
+    const url = `${PUBLIC_URL}/uploads/audio/${fileName}`;
+    const tmpPath = path.join(os.tmpdir(), fileName);
+    await downloadFile(url, tmpPath);
+    return tmpPath;
+  };
+
+  // 1) media.voiceUrl
+  if (media?.voiceUrl) {
+    try {
+      return await ensureDownloaded(media.voiceUrl);
+    } catch (err) {
+      throw new Error(`Failed to fetch media.voiceUrl (${media.voiceUrl}): ${err.message || err}`);
+    }
+  }
+
+  // 2) audioName provided in request
+  if (audioName) {
+    try {
+      return await ensureDownloaded(audioName);
+    } catch (err) {
+      throw new Error(`Failed to fetch audioName (${audioName}): ${err.message || err}`);
+    }
+  }
+
+  // 3) fallback: generate TTS and save under uploads/audio
+  try {
+    const ttsFileName = `tts-${media._id || uuidv4()}.mp3`;
+    const ttsPath = path.join(audioDir, ttsFileName);
+
+    await generateVoiceOver(media.story || media.description || 'Hello world', ttsPath);
+
+    // persist voiceUrl for future
+    media.voiceUrl = `/uploads/audio/${ttsFileName}`;
+    await media.save();
+
+    return ttsPath;
+  } catch (err) {
+    throw new Error(`TTS generation failed: ${err.message || err}`);
+  }
+};
 export const generateApiVideo = async (req, res) => {
   try {
     const { imageNames, audioName, mediaId } = req.body;
 
     if (!imageNames?.length || !mediaId) {
-      return res.status(400).json({ success: false, error: "Missing images or mediaId" });
+      return res.status(400).json({ success: false, error: 'Missing images or mediaId' });
     }
 
-    const uploadsDir = path.join(process.cwd(), "uploads");
-    const audioDir = path.join(uploadsDir, "audio");
+    const uploadsDir = path.join(process.cwd(), 'uploads');
+    const audioDir = path.join(uploadsDir, 'audio');
     await fs.promises.mkdir(audioDir, { recursive: true });
 
-    // ✅ resolve image paths
-    const imagePaths = [];
-    for (const name of imageNames) {
-      if (/^https?:\/\//.test(name)) {
-        const tmpPath = path.join(os.tmpdir(), path.basename(name));
-        await downloadFile(name, tmpPath);
-        imagePaths.push(tmpPath);
-      } else {
-        const localPath = path.join(uploadsDir, path.basename(name));
-        if (!(await fileExists(localPath))) {
-          const url = `${process.env.API_PUBLIC_URL || "https://footage-flow-server.onrender.com"}/uploads/${path.basename(name)}`;
-          const tmpPath = path.join(os.tmpdir(), path.basename(name));
-          await downloadFile(url, tmpPath);
-          imagePaths.push(tmpPath);
-        } else {
-          imagePaths.push(localPath);
-        }
-      }
-    }
-
-    // ✅ fetch media doc
+    // fetch media document early
     const media = await Media.findById(mediaId);
-    if (!media) return res.status(404).json({ success: false, error: "Media not found" });
+    if (!media) return res.status(404).json({ success: false, error: 'Media not found' });
 
-    // ✅ resolve audio
-    let audioPath;
-    if (media.voiceUrl) {
-      if (/^https?:\/\//.test(media.voiceUrl)) {
-        audioPath = path.join(os.tmpdir(), path.basename(media.voiceUrl));
-        await downloadFile(media.voiceUrl, audioPath);
-      } else {
-        const audioFileName = path.basename(media.voiceUrl);
-        audioPath = path.join(audioDir, audioFileName);
-
-        if (!(await fileExists(audioPath))) {
-          const url = `${process.env.SERVER_URL || "https://footage-flow-server.onrender.com"}/uploads/audio/${audioFileName}`;
-          const tmpPath = path.join(os.tmpdir(), audioFileName);
-          await downloadFile(url, tmpPath);
-          audioPath = tmpPath; // use downloaded file
-        }
-      }
-    } else if (audioName) {
-      if (/^https?:\/\//.test(audioName)) {
-        audioPath = path.join(os.tmpdir(), path.basename(audioName));
-        await downloadFile(audioName, audioPath);
-      } else {
-        const audioFileName = path.basename(audioName);
-        audioPath = path.join(audioDir, audioFileName);
-
-        if (!(await fileExists(audioPath))) {
-          const url = `${process.env.SERVER_URL || "https://footage-flow-server.onrender.com"}/uploads/audio/${audioFileName}`;
-          const tmpPath = path.join(os.tmpdir(), audioFileName);
-          await downloadFile(url, tmpPath);
-          audioPath = tmpPath; // ✅ ensure file exists
-        }
-      }
+    // resolve images -> always returns local file paths
+    const imagePaths = await resolveImagePaths(imageNames, uploadsDir);
+    if (!imagePaths.length) {
+      return res.status(400).json({ success: false, error: 'No valid images found' });
     }
 
-    else {
-      // fallback TTS
-      const ttsFileName = `tts-${mediaId}.mp3`;
-      audioPath = path.join(audioDir, ttsFileName);
-      await generateVoiceOver(media.story || media.description || "Hello world", audioPath);
-      media.voiceUrl = `/uploads/audio/${ttsFileName}`;
-      await media.save();
-    }
+    // resolve audio -> returns local file path (from uploads, public URL, or TTS)
+    const audioPath = await resolveAudioPath({ media, audioName, audioDir });
 
     if (!(await fileExists(audioPath))) {
       return res.status(404).json({ success: false, error: `Audio not found: ${audioPath}` });
     }
 
-    // ✅ generate video using your helper
+    // generate video and upload to S3 using your helper
     const videoKey = `videos/video-${uuidv4()}.mp4`;
     const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
       imagePaths,
       audioPath,
       s3Bucket: process.env.AWS_BUCKET,
       s3Key: videoKey,
-      title: media.title || "",
-      emotion: (media.emotions || [])[0] || "",
-      story: media.story || "",
-      tag: (media.tags || [])[0] || "",
+      title: media.title || '',
+      emotion: (media.emotions || [])[0] || '',
+      story: media.story || '',
+      tag: (media.tags || [])[0] || '',
     });
 
-    // ✅ thumbnail
+    // generate thumbnail and upload
     const localThumbPath = path.join(os.tmpdir(), `thumb-${uuidv4()}.jpg`);
     await generateThumbnail(localVideoPath, localThumbPath);
     const thumbKey = `thumbnails/thumb-${uuidv4()}.jpg`;
     const thumbUrl = await uploadFileToS3(localThumbPath, process.env.AWS_BUCKET, thumbKey);
 
-    // ✅ update DB
-    const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
+    // update DB
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com';
     await Media.findByIdAndUpdate(mediaId, {
       storyUrl: videoUrl,
       thumbnailUrl: thumbUrl,
-      transcript: "",
+      transcript: '',
       tags: media.tags || [],
       emotions: media.emotions || [],
-      encodingStatus: "completed",
-      mediaType: "video",
+      encodingStatus: 'completed',
+      mediaType: 'video',
       shares: (media.shares || 0) + 1,
       createdAt: new Date(),
     });
@@ -147,8 +184,8 @@ export const generateApiVideo = async (req, res) => {
       shortUrl: `${FRONTEND_URL}/m/${mediaId}`,
     });
   } catch (err) {
-    console.error("❌ Video generation failed:", err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('❌ Video generation failed:', err);
+    res.status(500).json({ success: false, error: err.message || String(err) });
   }
 };
 
