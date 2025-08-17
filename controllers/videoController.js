@@ -82,9 +82,19 @@ export const generateApiVideo = async (req, res) => {
         audioPath = path.join(os.tmpdir(), path.basename(audioName));
         await downloadFile(audioName, audioPath);
       } else {
-        audioPath = path.join(audioDir, path.basename(audioName));
+        const audioFileName = path.basename(audioName);
+        audioPath = path.join(audioDir, audioFileName);
+
+        if (!(await fileExists(audioPath))) {
+          const url = `${process.env.SERVER_URL || "https://footage-flow-server.onrender.com"}/uploads/audio/${audioFileName}`;
+          const tmpPath = path.join(os.tmpdir(), audioFileName);
+          await downloadFile(url, tmpPath);
+          audioPath = tmpPath; // ✅ ensure file exists
+        }
       }
-    } else {
+    }
+
+    else {
       // fallback TTS
       const ttsFileName = `tts-${mediaId}.mp3`;
       audioPath = path.join(audioDir, ttsFileName);
