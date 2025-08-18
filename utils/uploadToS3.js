@@ -8,7 +8,7 @@ import { PassThrough } from "stream";
 import os from "os";
 
 const ffmpeg = ffmpegPkg;
-// if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
+ if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
 // configure ffmpeg path if needed
 if (process.env.FFMPEG_PATH) ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
 
@@ -130,13 +130,13 @@ export const generateVideoToS3 = async ({
   await new Promise((resolve, reject) => {
     const command = ffmpeg();
 
-    imagePaths.forEach((img) =>
-      command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`])
-    );
+   imagePaths.forEach((img) => {
+  command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`]);
+});
     command.input(localAudioPath);
 
     command
-      .complexFilter(filterStr)
+      .complexFilter([filterStr])
       .videoCodec("libx264")
       .audioCodec("aac")
       .outputOptions(["-preset ultrafast", "-pix_fmt yuv420p", "-movflags +faststart", "-shortest"])

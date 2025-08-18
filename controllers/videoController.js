@@ -143,7 +143,8 @@ export const generateApiVideo = async (req, res) => {
     if (!(await fileExists(audioPath))) {
       return res.status(404).json({ success: false, error: `Audio not found: ${audioPath}` });
     }
-
+console.log("🎯 Image paths:", imagePaths);
+console.log("🎯 Audio path:", audioPath);
     // generate video and upload to S3 using your helper
     const videoKey = `videos/video-${uuidv4()}.mp4`;
     const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
