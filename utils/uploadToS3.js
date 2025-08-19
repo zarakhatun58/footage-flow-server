@@ -38,8 +38,10 @@ export const uploadFileToS3 = async (filePath, bucket, key) => {
             : "application/octet-stream",
     })
   );
+console.log("🚀 Uploading to S3:", { bucket, key, filePath });
 
   return `https://${bucket}.s3.amazonaws.com/${key}`;
+  
 };
 
 const escapeFF = (txt = "") =>

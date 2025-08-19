@@ -77,7 +77,9 @@ const resolveAudioPath = async ({ media, audioName, audioDir }) => {
     // fallback to public uploads audio
     const url = `${PUBLIC_URL}/uploads/audio/${fileName}`;
     const tmpPath = path.join(os.tmpdir(), fileName);
+    console.log("🌐 Trying to download from:", url);
     await downloadFile(url, tmpPath);
+    console.log("✅ Downloaded:", tmpPath);
     return tmpPath;
   };
 
@@ -143,8 +145,8 @@ export const generateApiVideo = async (req, res) => {
     if (!(await fileExists(audioPath))) {
       return res.status(404).json({ success: false, error: `Audio not found: ${audioPath}` });
     }
-console.log("🎯 Image paths:", imagePaths);
-console.log("🎯 Audio path:", audioPath);
+    console.log("🎯 Image paths:", imagePaths);
+    console.log("🎯 Audio path:", audioPath);
     // generate video and upload to S3 using your helper
     const videoKey = `videos/video-${uuidv4()}.mp4`;
     const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
@@ -177,6 +179,10 @@ console.log("🎯 Audio path:", audioPath);
       shares: (media.shares || 0) + 1,
       createdAt: new Date(),
     });
+    console.log("🖼 imageNames:", imageNames);
+    console.log("🎵 audioName:", audioName);
+    console.log("PUBLIC_URL:", PUBLIC_URL);
+    console.log("AWS_BUCKET:", process.env.AWS_BUCKET);
 
     res.json({
       success: true,
