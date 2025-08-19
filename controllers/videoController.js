@@ -3,7 +3,6 @@ import path from 'path';
 import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
-import { generateVideo } from '../utils/generateVideo.js';
 import Media from '../models/Media.js';
 import { generateVoiceOver } from '../utils/textToSpeechService.js';
 import { downloadFile, generateVideoToS3, uploadFileToS3 } from '../utils/uploadToS3.js';
@@ -33,26 +32,37 @@ const resolveImagePaths = async (imageNames = [], uploadsDir) => {
 
   for (const name of imageNames) {
     try {
+      // Case 1: caller provided a full HTTP(S) URL → download it
       if (isHttpUrl(name)) {
         const tmpPath = path.join(os.tmpdir(), path.basename(name));
+        console.log("🌐 Downloading remote image:", name);
         await downloadFile(name, tmpPath);
         results.push(tmpPath);
         continue;
       }
 
+      // Case 2: use local path from uploads directory
       const localPath = path.join(uploadsDir, path.basename(name));
       if (await fileExists(localPath)) {
         results.push(localPath);
         continue;
       }
 
-      // fallback: download from public uploads endpoint
-      const url = `${PUBLIC_URL}/uploads/${path.basename(name)}`;
-      const tmpPath = path.join(os.tmpdir(), path.basename(name));
-      await downloadFile(url, tmpPath);
-      results.push(tmpPath);
+      // 🚫 NO implicit fallback to PUBLIC_URL for images.
+      // This was failing on Render and caused "Failed to download".
+      // If you really need it, gate it behind an env flag:
+      if (process.env.ALLOW_PUBLIC_IMAGE_FALLBACK === "true") {
+        const url = `${PUBLIC_URL}/uploads/${path.basename(name)}`;
+        const tmpPath = path.join(os.tmpdir(), path.basename(name));
+        console.log("🌐 (fallback) Downloading from PUBLIC_URL:", url);
+        await downloadFile(url, tmpPath);
+        results.push(tmpPath);
+        continue;
+      }
+
+      // Otherwise, fail fast (clear error)
+      throw new Error(`Image not found locally: ${localPath}`);
     } catch (err) {
-      // bubble up with context
       throw new Error(`Failed to resolve/download image "${name}": ${err.message || err}`);
     }
   }
@@ -63,24 +73,29 @@ const resolveImagePaths = async (imageNames = [], uploadsDir) => {
 // ensures audio available locally: checks media.voiceUrl, then audioName, then TTS fallback
 const resolveAudioPath = async ({ media, audioName, audioDir }) => {
   const ensureDownloaded = async (value) => {
-    // value may be full URL, or filename, or path
     if (isHttpUrl(value)) {
       const tmpPath = path.join(os.tmpdir(), path.basename(value));
+      console.log("🌐 Downloading remote audio:", value);
       await downloadFile(value, tmpPath);
       return tmpPath;
     }
 
     const fileName = path.basename(value);
     const local = path.join(audioDir, fileName);
-    if (await fileExists(local)) return local;
+    if (await fileExists(local)) {
+      return local;
+    }
 
-    // fallback to public uploads audio
     const url = `${PUBLIC_URL}/uploads/audio/${fileName}`;
-    const tmpPath = path.join(os.tmpdir(), fileName);
-    console.log("🌐 Trying to download from:", url);
-    await downloadFile(url, tmpPath);
-    console.log("✅ Downloaded:", tmpPath);
-    return tmpPath;
+    if (process.env.ALLOW_PUBLIC_AUDIO_FALLBACK === "true") {
+      const tmpPath = path.join(os.tmpdir(), fileName);
+      console.log("🌐 Trying to download from:", url);
+      await downloadFile(url, tmpPath);
+      console.log("✅ Downloaded:", tmpPath);
+      return tmpPath;
+    }
+
+    throw new Error(`Audio not found locally and PUBLIC fallback disabled: ${local}`);
   };
 
   // 1) media.voiceUrl
@@ -88,27 +103,25 @@ const resolveAudioPath = async ({ media, audioName, audioDir }) => {
     try {
       return await ensureDownloaded(media.voiceUrl);
     } catch (err) {
-      throw new Error(`Failed to fetch media.voiceUrl (${media.voiceUrl}): ${err.message || err}`);
+      console.error(`⚠️ Failed to fetch media.voiceUrl (${media.voiceUrl}):`, err?.message || err);
     }
   }
 
-  // 2) audioName provided in request
+  // 2) audioName
   if (audioName) {
     try {
       return await ensureDownloaded(audioName);
     } catch (err) {
-      throw new Error(`Failed to fetch audioName (${audioName}): ${err.message || err}`);
+      console.error(`⚠️ Failed to fetch audioName (${audioName}):`, err?.message || err);
     }
   }
 
-  // 3) fallback: generate TTS and save under uploads/audio
+  // 3) fallback: TTS
   try {
     const ttsFileName = `tts-${media._id || uuidv4()}.mp3`;
     const ttsPath = path.join(audioDir, ttsFileName);
+    await generateVoiceOver(media.story || media.description || "Hello world", ttsPath);
 
-    await generateVoiceOver(media.story || media.description || 'Hello world', ttsPath);
-
-    // persist voiceUrl for future
     media.voiceUrl = `/uploads/audio/${ttsFileName}`;
     await media.save();
 
@@ -117,6 +130,7 @@ const resolveAudioPath = async ({ media, audioName, audioDir }) => {
     throw new Error(`TTS generation failed: ${err.message || err}`);
   }
 };
+
 export const generateApiVideo = async (req, res) => {
   try {
     const { imageNames, audioName, mediaId } = req.body;
@@ -149,16 +163,16 @@ export const generateApiVideo = async (req, res) => {
     console.log("🎯 Audio path:", audioPath);
     // generate video and upload to S3 using your helper
     const videoKey = `videos/video-${uuidv4()}.mp4`;
-    const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
-      imagePaths,
-      audioPath,
-      s3Bucket: process.env.AWS_BUCKET,
-      s3Key: videoKey,
-      title: media.title || '',
-      emotion: (media.emotions || [])[0] || '',
-      story: media.story || '',
-      tag: (media.tags || [])[0] || '',
-    });
+  const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
+  imagePaths,
+  audioPath,
+  s3Bucket: process.env.AWS_BUCKET,
+  s3Key: videoKey,
+  title: (media.title || "").trim(),
+  emotion: ((media.emotions || [])[0] || "neutral").trim(),
+  story: (media.story || "").trim(),
+  tag: ((media.tags || [])[0] || "JodiGo").trim(),
+});
 
     // generate thumbnail and upload
     const localThumbPath = path.join(os.tmpdir(), `thumb-${uuidv4()}.jpg`);

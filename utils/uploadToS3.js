@@ -4,7 +4,6 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import ffmpegPkg from 'fluent-ffmpeg';
 import ffmpegPath from 'ffmpeg-static';
 import https from "https";
-import { PassThrough } from "stream";
 import os from "os";
 
 const ffmpeg = ffmpegPkg;
@@ -20,29 +19,36 @@ const s3 = new S3Client({
   },
 });
 
-// ✅ helper for consistent S3 upload
+// [Lines ~22-48] UPDATED: stronger logging + support png content type
 export const uploadFileToS3 = async (filePath, bucket, key) => {
+  console.log("🚀 Uploading to S3 (pre-flight):", { bucket, key, filePath });
   const fileStream = fs.createReadStream(filePath);
+  const ext = path.extname(filePath).toLowerCase();
 
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: fileStream,
-      ContentType:
-        path.extname(filePath) === ".mp4"
-          ? "video/mp4"
-          : path.extname(filePath) === ".jpg" ||
-            path.extname(filePath) === ".jpeg"
-            ? "image/jpeg"
-            : "application/octet-stream",
-    })
-  );
-console.log("🚀 Uploading to S3:", { bucket, key, filePath });
+  const contentType =
+    ext === ".mp4" ? "video/mp4" :
+    ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
+    ext === ".png" ? "image/png" :
+    "application/octet-stream";
 
-  return `https://${bucket}.s3.amazonaws.com/${key}`;
-  
+  try {
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: fileStream,
+        ContentType: contentType,
+      })
+    );
+    const url = `https://${bucket}.s3.amazonaws.com/${key}`;
+    console.log("✅ S3 upload complete:", url);
+    return url;
+  } catch (err) {
+    console.error("❌ S3 upload failed:", { bucket, key, filePath, err: err?.message || err });
+    throw err;
+  }
 };
+
 
 const escapeFF = (txt = "") =>
   txt.replace(/'/g, "\\'").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
