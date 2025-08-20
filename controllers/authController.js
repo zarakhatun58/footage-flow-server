@@ -82,15 +82,19 @@ export const loginWithGoogle = async (req, res) => {
   }
 };
 
+
 export const getProfile = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId).select('-password');
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    // Consistent with other endpoints:
+    res.json({ user });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Failed to fetch profile' });
   }
 };
+
 
 export const logout = (req, res) => {
   res.clearCookie('token', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'Strict' });
