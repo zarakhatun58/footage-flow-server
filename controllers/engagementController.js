@@ -59,8 +59,8 @@ export const shareMedia = async (req, res) => {
     await media.save();
 
     // Always generate short link — even if this is the first share
-    const shortUrl = `${FRONTEND_URL}/m/${media._id}`;
-
+    // const shortUrl = `${FRONTEND_URL}/m/${media._id}`;
+    const shortUrl = media.storyUrl;
     res.json({
       success: true,
       shares: media.shares,

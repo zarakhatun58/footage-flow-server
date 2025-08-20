@@ -1,5 +1,6 @@
 import { getStoryFromGroq } from '../groq/groqClient.js';
 import speech from '@google-cloud/speech';
+import * as chrono from "chrono-node";
 import Media from '../models/Media.js';
 import path from 'path';
 import fetch from 'node-fetch';
@@ -150,6 +151,112 @@ export const createStory = async (req, res) => {
   }
 };
 
+
+export const searchVideos = async (req, res) => {
+  try {
+    const { search = "", page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    let dateFilter = {};
+    const parsedDates = chrono.parse(search);
+    if (parsedDates.length) {
+      const start = parsedDates[0].start.date();
+      const end = parsedDates[0].end ? parsedDates[0].end.date() : start;
+      dateFilter = { createdAt: { $gte: start, $lte: end } };
+    }
+
+    // Build regex for flexible matching
+    const regex = search ? new RegExp(search, "i") : null;
+
+    const pipeline = [];
+
+    // Match across multiple fields
+    if (search) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { tags: regex },
+            { emotions: regex },
+            { title: regex },
+            { transcript: regex },
+            { description: regex },
+            { story: regex },
+          ],
+          ...dateFilter,
+        },
+      });
+    } else if (Object.keys(dateFilter).length > 0) {
+      pipeline.push({ $match: dateFilter });
+    }
+
+    // Score boosting for exact tag/emotion matches
+    pipeline.push({
+      $addFields: {
+        boostScore: {
+          $add: [
+            {
+              $size: {
+                $ifNull: [
+                  { $filter: { input: "$tags", cond: { $eq: ["$$this", search.toLowerCase()] } } },
+                  [],
+                ],
+              },
+            },
+            {
+              $size: {
+                $ifNull: [
+                  { $filter: { input: "$emotions", cond: { $eq: ["$$this", search.toLowerCase()] } } },
+                  [],
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    pipeline.push({
+      $addFields: {
+        score: { $add: ["$boostScore", 1] }, // Always at least 1
+      },
+    });
+
+    // Paginate
+    pipeline.push({
+      $facet: {
+        paginatedResults: [
+          { $sort: { score: -1, createdAt: -1 } },
+          { $skip: skip },
+          { $limit: parseInt(limit) },
+        ],
+        totalCount: [{ $count: "count" }],
+      },
+    });
+
+    const result = await Media.aggregate(pipeline);
+    const videos = result[0].paginatedResults;
+    const total = result[0].totalCount[0]?.count || 0;
+
+    // Confidence %
+    const maxScore = videos.length > 0 ? videos[0].score : 1;
+    const videosWithConfidence = videos.map((v) => ({
+      ...v,
+      confidence: maxScore ? Math.round((v.score / maxScore) * 100) : 0,
+    }));
+
+    res.status(200).json({
+      videos: videosWithConfidence,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalVideos: total,
+      totalPages: Math.ceil(total / parseInt(limit)),
+    });
+  } catch (err) {
+    console.error("Search error:", err);
+    res.status(500).json({ error: "Search failed" });
+  }
+};
+
 // POST /api/shotstack/generate-video
 export const handleUploadAndGenerateVideo = async (req, res) => {
   const { images, voiceUrl } = req.body;
@@ -294,115 +401,6 @@ export const detectEmotion = async (req, res) => {
 
 
 
-export const searchVideos = async (req, res) => {
-  try {
-    const { search = "", page = 1, limit = 10 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Date parsing using chrono-node
-    let dateFilter = {};
-    const parsedDates = chrono.parse(search);
-    if (parsedDates.length) {
-      const start = parsedDates[0].start.date();
-      const end = parsedDates[0].end ? parsedDates[0].end.date() : start;
-      dateFilter = { createdAt: { $gte: start, $lte: end } };
-    }
-
-    // Aggregation pipeline
-    const pipeline = [];
-
-    // Text search stage
-    if (search) {
-      pipeline.push({
-        $match: { $text: { $search: search } },
-      });
-    }
-
-    // Dynamic regex match for fields
-    pipeline.push({
-      $match: {
-        $or: [
-          { tags: { $regex: search, $options: "i" } },
-          { emotions: { $regex: search, $options: "i" } },
-          { title: { $regex: search, $options: "i" } },
-          { transcript: { $regex: search, $options: "i" } },
-          { description: { $regex: search, $options: "i" } },
-          { story: { $regex: search, $options: "i" } },
-        ],
-        ...dateFilter,
-      },
-    });
-
-    // Boost exact tag/emotion matches
-    pipeline.push({
-      $addFields: {
-        textScore: { $meta: "textScore" },
-        boostScore: {
-          $add: [
-            {
-              $size: {
-                $ifNull: [
-                  { $filter: { input: "$tags", cond: { $eq: ["$$this", search.toLowerCase()] } } },
-                  [],
-                ],
-              },
-            },
-            {
-              $size: {
-                $ifNull: [
-                  { $filter: { input: "$emotions", cond: { $eq: ["$$this", search.toLowerCase()] } } },
-                  [],
-                ],
-              },
-            },
-          ],
-        },
-      },
-    });
-
-    // Combine score
-    pipeline.push({
-      $addFields: {
-        score: { $add: ["$textScore", "$boostScore"] },
-      },
-    });
-
-    // Facet for paginated results and total count
-    pipeline.push({
-      $facet: {
-        paginatedResults: [
-          { $sort: { score: -1, createdAt: -1 } },
-          { $skip: skip },
-          { $limit: parseInt(limit) },
-        ],
-        totalCount: [{ $count: "count" }],
-      },
-    });
-
-    const result = await Media.aggregate(pipeline);
-
-    const videos = result[0].paginatedResults;
-    const total = result[0].totalCount[0]?.count || 0;
-
-    // Normalize confidence 0-100
-    const maxScore = videos.length > 0 ? videos[0].score : 1;
-    const videosWithConfidence = videos.map((v) => ({
-      ...v,
-      confidence: maxScore ? Math.round((v.score / maxScore) * 100) : 0,
-    }));
-
-    res.status(200).json({
-      videos: videosWithConfidence,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      totalVideos: total,
-      totalPages: Math.ceil(total / parseInt(limit)),
-    });
-  } catch (err) {
-    console.error("Search error:", err);
-    res.status(500).json({ error: "Search failed" });
-  }
-};
 
 
 
