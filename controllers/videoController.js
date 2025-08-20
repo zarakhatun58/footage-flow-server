@@ -166,7 +166,7 @@ export const generateApiVideo = async (req, res) => {
     const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
       imagePaths: [...new Set(imagePaths)], // ✅ ensure no duplicate inputs
       audioPath,
-      s3Bucket: process.env.AWS_BUCKET,
+      s3Bucket: process.env.AWS_BUCKET_NAME,
       s3Key: videoKey,
       title: (media.title || "").trim(),
       emotion: ((media.emotions || [])[0] || "neutral").trim(),
@@ -178,7 +178,7 @@ export const generateApiVideo = async (req, res) => {
     const localThumbPath = path.join(os.tmpdir(), `thumb-${uuidv4()}.jpg`);
     await generateThumbnail(localVideoPath, localThumbPath);
     const thumbKey = `thumbnails/thumb-${uuidv4()}.jpg`;
-    const thumbUrl = await uploadFileToS3(localThumbPath, process.env.AWS_BUCKET, thumbKey);
+    const thumbUrl = await uploadFileToS3(localThumbPath, process.env.AWS_BUCKET_NAME, thumbKey);
 
     // update DB
     const FRONTEND_URL = process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com';
@@ -196,7 +196,7 @@ export const generateApiVideo = async (req, res) => {
     console.log("🖼 imageNames:", imageNames);
     console.log("🎵 audioName:", audioName);
     console.log("PUBLIC_URL:", PUBLIC_URL);
-    console.log("AWS_BUCKET:", process.env.AWS_BUCKET);
+    console.log("AWS_BUCKET_NAME:", process.env.AWS_BUCKET_NAME);
 
     res.json({
       success: true,

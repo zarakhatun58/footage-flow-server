@@ -176,8 +176,6 @@ await new Promise((resolve, reject) => {
 });
 
 
-
-
   const fileUrl = await uploadFileToS3(tmpFile, s3Bucket, s3Key);
   console.log(`✅ Uploaded to ${fileUrl}`);
 
