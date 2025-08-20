@@ -158,19 +158,20 @@ export const searchVideos = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     let dateFilter = {};
-    const parsedDates = chrono.parse(search);
-    if (parsedDates.length) {
-      const start = parsedDates[0].start.date();
-      const end = parsedDates[0].end ? parsedDates[0].end.date() : start;
-      dateFilter = { createdAt: { $gte: start, $lte: end } };
+    try {
+      const parsedDates = chrono.parse(search);
+      if (parsedDates.length) {
+        const start = parsedDates[0].start.date();
+        const end = parsedDates[0].end ? parsedDates[0].end.date() : start;
+        dateFilter = { createdAt: { $gte: start, $lte: end } };
+      }
+    } catch (e) {
+      console.warn("⚠️ Date parsing skipped:", e.message);
     }
 
-    // Build regex for flexible matching
     const regex = search ? new RegExp(search, "i") : null;
-
     const pipeline = [];
 
-    // Match across multiple fields
     if (search) {
       pipeline.push({
         $match: {
@@ -189,7 +190,6 @@ export const searchVideos = async (req, res) => {
       pipeline.push({ $match: dateFilter });
     }
 
-    // Score boosting for exact tag/emotion matches
     pipeline.push({
       $addFields: {
         boostScore: {
@@ -216,12 +216,9 @@ export const searchVideos = async (req, res) => {
     });
 
     pipeline.push({
-      $addFields: {
-        score: { $add: ["$boostScore", 1] }, // Always at least 1
-      },
+      $addFields: { score: { $add: ["$boostScore", 1] } },
     });
 
-    // Paginate
     pipeline.push({
       $facet: {
         paginatedResults: [
@@ -233,18 +230,30 @@ export const searchVideos = async (req, res) => {
       },
     });
 
-    const result = await Media.aggregate(pipeline);
-    const videos = result[0].paginatedResults;
-    const total = result[0].totalCount[0]?.count || 0;
+    // ✅ Safe query with timeout (10s max)
+    let result = [];
+    try {
+      result = await Promise.race([
+        Media.aggregate(pipeline).allowDiskUse(true),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Query timeout")), 10000)
+        ),
+      ]);
+    } catch (e) {
+      console.warn("⚠️ Mongo query failed:", e.message);
+      result = [{ paginatedResults: [], totalCount: [{ count: 0 }] }];
+    }
 
-    // Confidence %
+    const videos = result[0]?.paginatedResults || [];
+    const total = result[0]?.totalCount?.[0]?.count || 0;
+
     const maxScore = videos.length > 0 ? videos[0].score : 1;
     const videosWithConfidence = videos.map((v) => ({
       ...v,
       confidence: maxScore ? Math.round((v.score / maxScore) * 100) : 0,
     }));
 
-    res.status(200).json({
+    return res.status(200).json({
       videos: videosWithConfidence,
       page: parseInt(page),
       limit: parseInt(limit),
@@ -252,10 +261,17 @@ export const searchVideos = async (req, res) => {
       totalPages: Math.ceil(total / parseInt(limit)),
     });
   } catch (err) {
-    console.error("Search error:", err);
-    res.status(500).json({ error: "Search failed" });
+    console.error("❌ Unexpected search error:", err.message);
+    return res.status(200).json({
+      videos: [],
+      page: 1,
+      limit: 10,
+      totalVideos: 0,
+      totalPages: 0,
+    });
   }
 };
+
 
 // POST /api/shotstack/generate-video
 export const handleUploadAndGenerateVideo = async (req, res) => {
