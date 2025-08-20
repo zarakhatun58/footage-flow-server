@@ -109,9 +109,14 @@ export const handleUpload = async (req, res) => {
         if (mediaType === 'video') {
           if (isFinal) {
             const s3Key = `final-videos/${file.filename}`;
-            const s3Url = await generateVideoToS3(filePath, s3Key);
+            const s3Url = await generateVideoToS3({
+              imagePaths: [filePath],       // since we already have a video file, wrap in array
+              audioPath: null,              // no separate audio provided here
+              s3Bucket: process.env.AWS_BUCKET_NAME,
+              s3Key
+            });
             mediaDoc.storyUrl = s3Url;
-            try { fs.unlinkSync(filePath); } catch {}
+            try { fs.unlinkSync(filePath); } catch { }
           } else {
             mediaDoc.storyUrl = localPublicUrl;
           }

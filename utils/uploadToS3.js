@@ -80,7 +80,7 @@ export const generateVideoToS3 = async ({
   audioPath,
   s3Bucket,
   s3Key,
-  perImageDuration = 2,
+   perImageDuration = 2,
   targetWidth = 1280,
   title = "",
   emotion = "",
@@ -145,12 +145,7 @@ await new Promise((resolve, reject) => {
 
   command.input(localAudioPath);
 
-  // build filter chain for images + overlay texts
-  const filterStr = [
-    `concat=n=${imagePaths.length}:v=1:a=0,${scalePadFilter}`, // ✅ stitch images first
-    ...drawTextFilters
-  ].join(",");
-
+  // ✅ use filterStr built earlier (with scaling + drawtexts)
   command
     .complexFilter([filterStr])
     .videoCodec("libx264")
@@ -171,6 +166,7 @@ await new Promise((resolve, reject) => {
     .on("end", resolve)
     .save(tmpFile);
 });
+
 
 
   const fileUrl = await uploadFileToS3(tmpFile, s3Bucket, s3Key);
