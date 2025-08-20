@@ -138,14 +138,22 @@ export const generateVideoToS3 = async ({
 await new Promise((resolve, reject) => {
   const command = ffmpeg();
 
-  // 🔥 feed all images, each with duration
-  imagePaths.forEach((img) => {
-    command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`]);
-  });
+  if (imagePaths.length === 1) {
+    // ✅ Single image: safe looping
+    command.input(imagePaths[0]).inputOptions([`-loop 1`]);
+  } else {
+    // ✅ Multiple images: use concat demuxer (no giant memory usage)
+    const listFile = path.join(os.tmpdir(), `ffmpeg-list-${Date.now()}.txt`);
+    const listContent = imagePaths
+      .map((img) => `file '${img.replace(/'/g, "'\\''")}'\nduration ${perImageDuration}`)
+      .join("\n");
+
+    fs.writeFileSync(listFile, listContent + "\n", "utf8");
+    command.input(listFile).inputOptions(["-f concat", "-safe 0"]);
+  }
 
   command.input(localAudioPath);
 
-  // ✅ use filterStr built earlier (with scaling + drawtexts)
   command
     .complexFilter([filterStr])
     .videoCodec("libx264")
@@ -166,6 +174,7 @@ await new Promise((resolve, reject) => {
     .on("end", resolve)
     .save(tmpFile);
 });
+
 
 
 
