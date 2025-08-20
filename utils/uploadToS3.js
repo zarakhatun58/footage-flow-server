@@ -135,29 +135,43 @@ export const generateVideoToS3 = async ({
 
   const tmpFile = path.join(os.tmpdir(), `video-${Date.now()}.mp4`);
 
-  await new Promise((resolve, reject) => {
-    const command = ffmpeg();
+await new Promise((resolve, reject) => {
+  const command = ffmpeg();
 
-   imagePaths.forEach((img) => {
-  command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`]);
-});
-    command.input(localAudioPath);
-
-    command
-      .complexFilter([filterStr])
-      .videoCodec("libx264")
-      .audioCodec("aac")
-      .outputOptions(["-preset ultrafast", "-pix_fmt yuv420p", "-movflags +faststart", "-shortest"])
-      .format("mp4")
-      .on("start", (cmd) => console.log("🎬 FFmpeg:", cmd))
-      .on("error", (err, stdout, stderr) => {
-        console.error("❌ FFmpeg error:", err);
-        console.error(stderr);
-        reject(err);
-      })
-      .on("end", resolve)
-      .save(tmpFile);
+  // 🔥 feed all images, each with duration
+  imagePaths.forEach((img) => {
+    command.input(img).inputOptions([`-loop 1`, `-t ${perImageDuration}`]);
   });
+
+  command.input(localAudioPath);
+
+  // build filter chain for images + overlay texts
+  const filterStr = [
+    `concat=n=${imagePaths.length}:v=1:a=0,${scalePadFilter}`, // ✅ stitch images first
+    ...drawTextFilters
+  ].join(",");
+
+  command
+    .complexFilter([filterStr])
+    .videoCodec("libx264")
+    .audioCodec("aac")
+    .outputOptions([
+      "-preset ultrafast",
+      "-pix_fmt yuv420p",
+      "-movflags +faststart",
+      "-shortest"
+    ])
+    .format("mp4")
+    .on("start", (cmd) => console.log("🎬 FFmpeg:", cmd))
+    .on("error", (err, stdout, stderr) => {
+      console.error("❌ FFmpeg error:", err);
+      console.error(stderr);
+      reject(err);
+    })
+    .on("end", resolve)
+    .save(tmpFile);
+});
+
 
   const fileUrl = await uploadFileToS3(tmpFile, s3Bucket, s3Key);
   console.log(`✅ Uploaded to ${fileUrl}`);

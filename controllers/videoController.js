@@ -163,16 +163,16 @@ export const generateApiVideo = async (req, res) => {
     console.log("🎯 Audio path:", audioPath);
     // generate video and upload to S3 using your helper
     const videoKey = `videos/video-${uuidv4()}.mp4`;
-  const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
-  imagePaths,
-  audioPath,
-  s3Bucket: process.env.AWS_BUCKET,
-  s3Key: videoKey,
-  title: (media.title || "").trim(),
-  emotion: ((media.emotions || [])[0] || "neutral").trim(),
-  story: (media.story || "").trim(),
-  tag: ((media.tags || [])[0] || "JodiGo").trim(),
-});
+    const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
+      imagePaths: [...new Set(imagePaths)], // ✅ ensure no duplicate inputs
+      audioPath,
+      s3Bucket: process.env.AWS_BUCKET,
+      s3Key: videoKey,
+      title: (media.title || "").trim(),
+      emotion: ((media.emotions || [])[0] || "neutral").trim(),
+      story: (media.story || "").trim(),
+      tag: ((media.tags || [])[0] || "JodiGo").trim(),
+    });
 
     // generate thumbnail and upload
     const localThumbPath = path.join(os.tmpdir(), `thumb-${uuidv4()}.jpg`);
