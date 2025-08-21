@@ -70,6 +70,7 @@ export const handleUpload = async (req, res) => {
         mediaType,
         transcript,
         emotions,
+         title,
         tags,
         storyUrl: mediaType === 'video' ? localPublicUrl : '',
         images: mediaType === 'image' ? [localPublicUrl] : [],
@@ -123,6 +124,7 @@ export const handleUpload = async (req, res) => {
         }
 
         // Update metadata
+         mediaDoc.title = title || 'Not available';
         mediaDoc.transcript = transcript || 'Not available';
         mediaDoc.emotions = Array.isArray(emotions) && emotions.length ? emotions : ['Not detected'];
         mediaDoc.tags = Array.isArray(tags) && tags.length ? tags : ['Not generated'];
@@ -138,6 +140,7 @@ export const handleUpload = async (req, res) => {
       // Push response object
       uploaded.push({
         _id: mediaDoc._id,
+        title:mediaDoc.title,
         filename: mediaDoc.filename,
         mediaType: mediaDoc.mediaType,
         transcript: mediaDoc.transcript,

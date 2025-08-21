@@ -197,6 +197,7 @@ export const generateApiVideo = async (req, res) => {
     console.log("🎵 audioName:", audioName);
     console.log("PUBLIC_URL:", PUBLIC_URL);
     console.log("AWS_BUCKET_NAME:", process.env.AWS_BUCKET_NAME);
+    console.log("title", title);
 
     res.json({
       success: true,
