@@ -232,7 +232,7 @@ export const generateApiVideo = async (req, res) => {
 
 export const saveFinalVideo = async (req, res) => {
   try {
-    const { mediaId, videoUrl } = req.body; // accept URL directly
+     const { mediaId, videoUrl, title } = req.body; // accept URL directly
 
     if (!videoUrl) {
       return res.status(400).json({ error: "Video URL is required" });
@@ -240,6 +240,7 @@ export const saveFinalVideo = async (req, res) => {
 
     await Media.findByIdAndUpdate(mediaId, {
       storyUrl: videoUrl,
+       title: title || "Untitled", 
       encodingStatus: "completed",
     });
 
