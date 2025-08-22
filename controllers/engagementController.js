@@ -7,22 +7,32 @@ const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrend
 const calculateRankScore = ({ likes = 0, shares = 0, views = 0 }) =>
   (likes * 2) + (shares * 3) + (views * 1);
 
+// Small helper to normalize MongoDB docs
+const mapMedia = (media) => {
+  if (!media) return null;
+  const obj = media.toObject ? media.toObject() : media;
+  return {
+    ...obj,
+    id: obj._id.toString(),
+  };
+};
+
 // GET /api/media/:id
 export const getMediaById = async (req, res) => {
   try {
     const media = await Media.findById(req.params.id);
     if (!media) return res.status(404).json({ success: false, error: "Media not found" });
-    res.json({ success: true, media });
+    res.json({ success: true, media: mapMedia(media) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
 // GET /api/media/videos  (all videos, newest first)
-export const getAllVideos = async (_req, res) => {
+export const getAllMedia = async (_req, res) => {
   try {
     const videos = await Media.find({ mediaType: "video" }).sort({ createdAt: -1 });
-    res.json({ success: true, videos });
+    res.json({ success: true, videos: videos.map(mapMedia) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -38,7 +48,7 @@ export const likeMedia = async (req, res) => {
     media.rankScore = calculateRankScore(media);
     await media.save();
 
-    res.json({ success: true, likes: media.likes, rankScore: media.rankScore });
+    res.json({ success: true,id: media._id.toString(), likes: media.likes, rankScore: media.rankScore });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -63,6 +73,7 @@ export const shareMedia = async (req, res) => {
     const shortUrl = media.storyUrl;
     res.json({
       success: true,
+       id: media._id.toString(),
       shares: media.shares,
       rankScore: media.rankScore,
       shortUrl,               // ✅ guaranteed to be here
@@ -90,14 +101,14 @@ export const viewMedia = async (req, res) => {
     media.rankScore = calculateRankScore(media);
     await media.save();
 
-    res.json({ success: true, views: media.views, rankScore: media.rankScore });
+    res.json({ success: true,  id: media._id.toString(), views: media.views, rankScore: media.rankScore });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
 // GET /api/media/ranked?limit=20
-export const getRankedVideos = async (req, res) => {
+export const getRankedMedia = async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit || "20", 10), 100);
     const videos = await Media
@@ -105,15 +116,14 @@ export const getRankedVideos = async (req, res) => {
       .sort({ rankScore: -1, createdAt: -1 })
       .limit(limit);
 
-    res.json({ success: true, videos });
+    res.json({ success: true, videos: videos.map(mapMedia) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
-// OPTIONAL: trending by last N days with decay (heavier on new engagement)
 // GET /api/media/trending?days=7&limit=20
-export const getTrendingVideos = async (req, res) => {
+export const getTrendingMedia = async (req, res) => {
   try {
     const days = Math.max(parseInt(req.query.days || "7", 10), 1);
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -125,12 +135,32 @@ export const getTrendingVideos = async (req, res) => {
       .sort({ rankScore: -1, createdAt: -1 })
       .limit(limit);
 
-    res.json({ success: true, videos });
+    res.json({ success: true, videos: videos.map(mapMedia)  });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
+// GET /api/media/:id/stats
+export const getMediaStats = async (req, res) => {
+  try {
+    const media = await Media.findById(req.params.id);
+    if (!media) {
+      return res.status(404).json({ success: false, error: "Media not found" });
+    }
+
+    res.json({
+      success: true,
+       id: media._id.toString(),
+      likes: media.likes || 0,
+      shares: media.shares || 0,
+      views: media.views || 0,
+      rankScore: media.rankScore || 0,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
 
 
 export const getShortUrl = async (req, res) => {
@@ -146,6 +176,7 @@ export const getShortUrl = async (req, res) => {
 
     return res.json({
       success: true,
+        id: media._id.toString(), 
       shortUrl,
       publicUrl: media.storyUrl || null,
     });

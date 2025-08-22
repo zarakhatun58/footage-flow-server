@@ -70,7 +70,7 @@ export const handleUpload = async (req, res) => {
         mediaType,
         transcript,
         emotions,
-         title,
+       title, 
         tags,
         storyUrl: mediaType === 'video' ? localPublicUrl : '',
         images: mediaType === 'image' ? [localPublicUrl] : [],

@@ -2,22 +2,23 @@
 import express from "express";
 import {
   getMediaById,
-  getAllVideos,
+  getAllMedia,
   likeMedia,
   getShortUrl,
   shareMedia,
   viewMedia,
-  getRankedVideos,
-  getTrendingVideos
+  getRankedMedia,
+  getTrendingMedia,
+  getMediaStats
 } from "../controllers/engagementController.js";
 import { viewCooldown } from "../middleware/viewCooldown.js";
 
 const router = express.Router();
 
 // read
-router.get("/videos", getAllVideos);
-router.get("/ranked", getRankedVideos);
-router.get("/trending", getTrendingVideos);
+router.get("/videos", getAllMedia);
+router.get("/ranked", getRankedMedia);
+router.get("/trending", getTrendingMedia);
 router.get("/:id", getMediaById);
 
 // actions
@@ -25,5 +26,5 @@ router.post("/:id/like", likeMedia);
 router.post("/:id/share", shareMedia);
 router.post("/:id/view", viewCooldown, viewMedia);
 router.get('/:id/shorturl', getShortUrl);
-
+router.get("/:id/stats", getMediaStats);
 export default router;

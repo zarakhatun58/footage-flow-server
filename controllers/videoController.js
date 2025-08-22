@@ -131,6 +131,15 @@ const resolveAudioPath = async ({ media, audioName, audioDir }) => {
   }
 };
 
+function generateAutoTitle(media) {
+  const emotion = (media.emotions?.[0] || "neutral").trim();
+  const tag = (media.tags?.[0] || "Story").trim();
+
+  // Example: "Joyful Story about Travel"
+  return `${emotion.charAt(0).toUpperCase() + emotion.slice(1)} ${tag}`;
+}
+
+
 export const generateApiVideo = async (req, res) => {
   try {
     const { imageNames, audioName, mediaId } = req.body;
@@ -161,6 +170,14 @@ export const generateApiVideo = async (req, res) => {
     }
     console.log("🎯 Image paths:", imagePaths);
     console.log("🎯 Audio path:", audioPath);
+
+     let finalTitle =
+      (media.title && media.title.trim()) ||
+      (media.story && media.story.slice(0, 50)) || // first 50 chars of story
+      (media.tags?.[0]) ||
+      (media.emotions?.[0]) ||
+      `Generated Video ${new Date().toISOString()}`; 
+
     // generate video and upload to S3 using your helper
     const videoKey = `videos/video-${uuidv4()}.mp4`;
     const { fileUrl: videoUrl, localPath: localVideoPath } = await generateVideoToS3({
@@ -168,7 +185,7 @@ export const generateApiVideo = async (req, res) => {
       audioPath,
       s3Bucket: process.env.AWS_BUCKET_NAME,
       s3Key: videoKey,
-      title: (media.title || "").trim(),
+      title: finalTitle,
       emotion: ((media.emotions || [])[0] || "neutral").trim(),
       story: (media.story || "").trim(),
       tag: ((media.tags || [])[0] || "JodiGo").trim(),
@@ -186,6 +203,7 @@ export const generateApiVideo = async (req, res) => {
       storyUrl: videoUrl,
       thumbnailUrl: thumbUrl,
       transcript: '',
+         title: finalTitle,
       tags: media.tags || [],
       emotions: media.emotions || [],
       encodingStatus: 'completed',
@@ -197,21 +215,20 @@ export const generateApiVideo = async (req, res) => {
     console.log("🎵 audioName:", audioName);
     console.log("PUBLIC_URL:", PUBLIC_URL);
     console.log("AWS_BUCKET_NAME:", process.env.AWS_BUCKET_NAME);
-    console.log("title", title);
+  console.log("title:", finalTitle);
 
     res.json({
       success: true,
       videoUrl,
       thumbnailUrl: thumbUrl,
       shortUrl: `${FRONTEND_URL}/m/${mediaId}`,
+      title: finalTitle, 
     });
   } catch (err) {
     console.error('❌ Video generation failed:', err);
     res.status(500).json({ success: false, error: err.message || String(err) });
   }
 };
-
-
 
 export const saveFinalVideo = async (req, res) => {
   try {
