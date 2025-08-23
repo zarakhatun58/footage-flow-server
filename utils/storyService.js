@@ -47,19 +47,52 @@ async function generateVoiceOver(text) {
 /**
  * Generate story video with FFmpeg (black screen + voice-over)
  */
+// async function generateStoryVideo(text) {
+//     const audioFile = await generateVoiceOver(text);
+
+//     const videoFile = path.join(os.tmpdir(), `story-${uuidv4()}.mp4`);
+
+//     return new Promise((resolve, reject) => {
+//         ffmpeg()
+//             .input(`color=black:s=1280x720:d=10`)
+//             .inputOptions(["-f lavfi"])
+//             .input(audioFile)
+//             .videoCodec("libx264")
+//             .audioCodec("aac")
+//             .outputOptions("-shortest")
+//             .save(videoFile)
+//             .on("end", () => resolve({ audioFile, videoFile }))
+//             .on("error", (err) => reject(err));
+//     });
+// }
 async function generateStoryVideo(text) {
     const audioFile = await generateVoiceOver(text);
 
     const videoFile = path.join(os.tmpdir(), `story-${uuidv4()}.mp4`);
 
+    // Escape text safely for FFmpeg drawtext
+    const safeText = text
+        .replace(/:/g, "\\:")
+        .replace(/'/g, "\\'")
+        .replace(/\n/g, "\\n");
+
     return new Promise((resolve, reject) => {
         ffmpeg()
-            .input(`color=black:s=1280x720:d=10`)
+            // black background, duration long enough for scroll
+            .input(`color=black:s=1280x720:d=30`)
             .inputOptions(["-f lavfi"])
             .input(audioFile)
             .videoCodec("libx264")
             .audioCodec("aac")
-            .outputOptions("-shortest")
+            .outputOptions([
+                "-shortest",
+                `-vf drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:
+                text='${safeText}':
+                fontcolor=white:fontsize=42:
+                x=(w-text_w)/2:
+                y=h-(t*40):
+                line_spacing=20:box=0`
+            ])
             .save(videoFile)
             .on("end", () => resolve({ audioFile, videoFile }))
             .on("error", (err) => reject(err));
