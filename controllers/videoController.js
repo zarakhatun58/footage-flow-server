@@ -131,13 +131,26 @@ const resolveAudioPath = async ({ media, audioName, audioDir }) => {
   }
 };
 
-function generateAutoTitle(media) {
-  const emotion = (media.emotions?.[0] || "neutral").trim();
+export function generateAutoTitle(media) {
+  const emotion = (media.emotions?.[0] || "Neutral").trim();
   const tag = (media.tags?.[0] || "Story").trim();
+  const story = (media.story || "").trim();
 
-  // Example: "Joyful Story about Travel"
-  return `${emotion.charAt(0).toUpperCase() + emotion.slice(1)} ${tag}`;
+  let subject = "";
+  if (story.length > 0) {
+    // take first 3-4 words of the story
+    subject = story.split(" ").slice(0, 4).join(" ");
+  }
+
+  if (subject) {
+    return `${capitalize(emotion)} ${tag} about ${subject}`;
+  }
+  return `${capitalize(emotion)} ${tag}`;
 }
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
 
 
 export const generateApiVideo = async (req, res) => {
@@ -171,12 +184,7 @@ export const generateApiVideo = async (req, res) => {
     console.log("🎯 Image paths:", imagePaths);
     console.log("🎯 Audio path:", audioPath);
 
-     let finalTitle =
-      (media.title && media.title.trim()) ||
-      (media.story && media.story.slice(0, 50)) || // first 50 chars of story
-      (media.tags?.[0]) ||
-      (media.emotions?.[0]) ||
-      `Generated Video ${new Date().toISOString()}`; 
+     const finalTitle = generateAutoTitle(media);
 
     // generate video and upload to S3 using your helper
     const videoKey = `videos/video-${uuidv4()}.mp4`;

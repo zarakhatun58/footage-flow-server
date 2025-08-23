@@ -58,3 +58,20 @@ export async function generateVoiceOver(text, outputFile = 'output.mp3') {
  // Return relative path to store in DB (for media.voiceUrl)
   return `/uploads/audio/${outputFile}`;
 }
+
+
+export async function generateVoiceOverForStory(text, outputPath) {
+  const request = {
+    input: { text },
+    voice: { languageCode: "en-US", ssmlGender: "FEMALE" },
+    audioConfig: { audioEncoding: "MP3" },
+  };
+
+  const [response] = await client.synthesizeSpeech(request);
+
+  // Save directly to outputPath (no uploads/audio)
+  await fs.writeFile(outputPath, response.audioContent, "binary");
+
+  console.log("🎙 Story Voice-over created:", outputPath);
+  return outputPath;
+}

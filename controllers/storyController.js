@@ -4,10 +4,41 @@ import * as chrono from "chrono-node";
 import Media from '../models/Media.js';
 import path from 'path';
 import fetch from 'node-fetch';
+import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
+import os from 'os';
 import { getEmotionLabels } from '../utils/emotion.js';
-import { generateVoiceOver } from '../utils/textToSpeechService.js';
+import { generateVoiceOver, generateVoiceOverForStory } from '../utils/textToSpeechService.js';
+import { generateWithCohere } from "../utils/cohere.js";
 import nlp from 'compromise';
+import { createStoryVideo } from '../utils/storyService.js';
+
+
+// 1. Plan a story with Cohere
+export const createStoryPlan = async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt) return res.status(400).json({ error: "Prompt is required" });
+
+    const story = await generateWithCohere(prompt);
+    res.json({ story });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+export const generateStoryVideo = async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ success: false, error: "Text is required" });
+
+    const result = await createStoryVideo(text);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
 
 
 
@@ -25,6 +56,8 @@ export const getAllVideos = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch videos' });
   }
 };
+
+
 
 // POST /api/generate - Generate AI story from prompt + transcript
 export const generateStory = async (req, res) => {
@@ -727,7 +760,7 @@ export const checkRenderStatus = async (req, res) => {
       }
     });
 
-     const data = await response.json();
+    const data = await response.json();
 
     console.log('📦 Shotstack raw status response:', JSON.stringify(data, null, 2));
 

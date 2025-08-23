@@ -9,7 +9,9 @@ import {
   searchVideos,
   generateTagsAndStory,
   generateAndRenderVideo,
-  checkRenderStatus
+  checkRenderStatus,
+  generateStoryVideo,
+  createStoryPlan
 } from '../controllers/storyController.js';
 import Story from '../models/Story.js';
 
@@ -25,7 +27,9 @@ router.get('/search-videos', searchVideos);
 router.post('/story/generate-all', generateTagsAndStory);
 router.post('/speech/generate-video', generateAndRenderVideo);
 router.get('/speech/render-status/:renderId', checkRenderStatus);
-
+router.post("/plan", createStoryPlan);
+// Step 2: Generate actual stitched video
+router.post("/generate-story-video", generateStoryVideo);
 // New endpoint for dynamic suggested searches:
 router.get('/search-suggestions', async (req, res) => {
   try {
@@ -53,7 +57,6 @@ const timeToSeconds = (timeStr) => {
   return seconds;
 };
 
-// http://localhost:5000/api/videos/:videoId/clip?start=HH:MM:SS&duration=seconds
 // GET /api/videos/:videoId/clip?start=HH:MM:SS&duration=seconds
 router.get('/:videoId/clip', async (req, res) => {
   try {
