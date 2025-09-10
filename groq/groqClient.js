@@ -2,7 +2,7 @@ import axios from 'axios';
 
 export const getStoryFromGroq = async (prompt, transcript) => {
   const apiKey = process.env.GROQ_API_KEY;
-  const model = 'llama3-70b-8192';
+  const model = 'llama-3.3-70b-versatile';
 
   if (!apiKey) {
     console.error('❌ Missing GROQ_API_KEY in environment variables.');
