@@ -1,5 +1,5 @@
 import express from 'express';
-import {  generateApiVideo, checkApiVideoStatus, getAllVideos, saveFinalVideo } from '../controllers/videoController.js';
+import {  generateApiVideo, checkApiVideoStatus, getAllVideos, saveFinalVideo, deleteVideo,editVideo  } from '../controllers/videoController.js';
 
 const router = express.Router();
 // POST → generate a video from image + audio, upload to B2, return signed URL
@@ -12,4 +12,8 @@ router.get('/status/:videoId', checkApiVideoStatus);
 router.get('/all-generate-video', getAllVideos);
 
 router.post("/upload-final", saveFinalVideo);
+router.delete("/delete/:id", deleteVideo);
+router.put("/edit/:id", editVideo);
+
+
 export default router;

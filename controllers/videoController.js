@@ -309,6 +309,122 @@ export const getAllVideos = async (req, res) => {
   }
 };
 
+export const deleteVideo = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const media = await Media.findById(id);
+    if (!media) {
+      return res.status(404).json({ success: false, error: "Video not found" });
+    }
+
+    // Optional: delete from S3 if URLs exist
+    if (media.storyUrl) {
+      await deleteFileFromS3(media.storyUrl);
+    }
+    if (media.thumbnailUrl) {
+      await deleteFileFromS3(media.thumbnailUrl);
+    }
+
+    await Media.findByIdAndDelete(id);
+
+    res.json({ success: true, message: "Video deleted successfully" });
+  } catch (err) {
+    console.error("❌ Error deleting video:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const editVideo = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      title,
+      tags,
+      emotions,
+      story,
+      imageNames,
+      audioName
+    } = req.body;
+
+    const media = await Media.findById(id);
+    if (!media) {
+      return res.status(404).json({ success: false, error: "Video not found" });
+    }
+
+    let videoUrl = media.storyUrl;
+    let thumbUrl = media.thumbnailUrl;
+
+    // If images or audio are provided → regenerate video
+    if ((imageNames && imageNames.length) || audioName) {
+      const uploadsDir = path.join(process.cwd(), "uploads");
+      const audioDir = path.join(uploadsDir, "audio");
+      await fs.promises.mkdir(audioDir, { recursive: true });
+
+      // Resolve new image paths
+      const imagePaths = imageNames?.length
+        ? await resolveImagePaths(imageNames, uploadsDir)
+        : [];
+
+      // Resolve new audio path
+      const audioPath = audioName
+        ? await resolveAudioPath({ media, audioName, audioDir })
+        : null;
+
+      // Generate video and upload to S3
+      const videoKey = `videos/video-${uuidv4()}.mp4`;
+      const { fileUrl: newVideoUrl, localPath: localVideoPath } =
+        await generateVideoToS3({
+          imagePaths: imagePaths.length ? imagePaths : undefined,
+          audioPath: audioPath || undefined,
+          s3Bucket: process.env.AWS_BUCKET_NAME,
+          s3Key: videoKey,
+          title: title || media.title,
+          emotion: ((emotions || media.emotions || [])[0] || "neutral").trim(),
+          story: (story || media.story || "").trim(),
+          tag: ((tags || media.tags || [])[0] || "JodiGo").trim(),
+        });
+
+      videoUrl = newVideoUrl;
+
+      // Generate new thumbnail
+      const localThumbPath = path.join(os.tmpdir(), `thumb-${uuidv4()}.jpg`);
+      await generateThumbnail(localVideoPath, localThumbPath);
+      const thumbKey = `thumbnails/thumb-${uuidv4()}.jpg`;
+      thumbUrl = await uploadFileToS3(
+        localThumbPath,
+        process.env.AWS_BUCKET_NAME,
+        thumbKey
+      );
+    }
+
+    // Update DB
+    const updated = await Media.findByIdAndUpdate(
+      id,
+      {
+        ...(title && { title }),
+        ...(tags && { tags }),
+        ...(emotions && { emotions }),
+        ...(story && { story }),
+        ...(videoUrl && { storyUrl: videoUrl }),
+        ...(thumbUrl && { thumbnailUrl: thumbUrl }),
+        encodingStatus: "completed",
+        updatedAt: new Date(),
+      },
+      { new: true }
+    );
+
+    res.json({
+      success: true,
+      video: updated,
+    });
+  } catch (err) {
+    console.error("❌ Error editing video:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+
 // workable
 // export const generateApiVideo = async (req, res) => {
 //   try {
