@@ -238,26 +238,6 @@ export const generateApiVideo = async (req, res) => {
   }
 };
 
-export const saveFinalVideo = async (req, res) => {
-  try {
-     const { mediaId, videoUrl, title } = req.body; // accept URL directly
-
-    if (!videoUrl) {
-      return res.status(400).json({ error: "Video URL is required" });
-    }
-
-    await Media.findByIdAndUpdate(mediaId, {
-      storyUrl: videoUrl,
-       title: title || "Untitled", 
-      encodingStatus: "completed",
-    });
-
-    res.json({ success: true, url: videoUrl });
-  } catch (err) {
-    console.error("Error saving video URL:", err);
-    res.status(500).json({ error: "Failed to save video URL" });
-  }
-};
 
 export const checkApiVideoStatus = async (req, res) => {
   try {
@@ -300,7 +280,7 @@ export const getAllVideos = async (req, res) => {
   try {
     const videos = await Media.find({ mediaType: 'video' })
       .sort({ createdAt: -1 })
-      .select('title description storyUrl likes shares views createdAt');
+      // .select('title description storyUrl likes shares views createdAt');
 
     res.json({ success: true, videos });
   } catch (err) {
@@ -421,6 +401,27 @@ export const editVideo = async (req, res) => {
   } catch (err) {
     console.error("❌ Error editing video:", err);
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const saveFinalVideo = async (req, res) => {
+  try {
+     const { mediaId, videoUrl, title } = req.body; // accept URL directly
+
+    if (!videoUrl) {
+      return res.status(400).json({ error: "Video URL is required" });
+    }
+
+    await Media.findByIdAndUpdate(mediaId, {
+      storyUrl: videoUrl,
+       title: title || "Untitled", 
+      encodingStatus: "completed",
+    });
+
+    res.json({ success: true, url: videoUrl });
+  } catch (err) {
+    console.error("Error saving video URL:", err);
+    res.status(500).json({ error: "Failed to save video URL" });
   }
 };
 
