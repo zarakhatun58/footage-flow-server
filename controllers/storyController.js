@@ -94,6 +94,21 @@ export const generateStory = async (req, res) => {
   }
 };
 
+export const getStoryById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const video = await Media.findById(id).select("story transcript prompt");
+
+    if (!video) {
+      return res.status(404).json({ success: false, error: "Story not found" });
+    }
+
+    res.json({ success: true, story: video.story, transcript: video.transcript, prompt: video.prompt });
+  } catch (err) {
+    console.error("❌ Error fetching story:", err.message);
+    res.status(500).json({ success: false, error: "Failed to fetch story" });
+  }
+};
 
 
 // POST /api/story/tags - Generate tags from transcript
@@ -381,79 +396,6 @@ export const detectEmotion = async (req, res) => {
   }
 };
 
-
-
-// export const searchVideos = async (req, res) => {
-//   try {
-//     const { search } = req.query;
-
-//     // If no search term, return all videos sorted by creation date
-//     if (!search) {
-//       const videos = await Media.find().sort({ createdAt: -1 }).lean();
-//       return res.status(200).json({ videos });
-//     }
-
-//     // Date parsing using chrono-node
-//     let dateFilter = null;
-//     const parsedDates = chrono.parse(search);
-//     if (parsedDates.length) {
-//       const start = parsedDates[0].start.date();
-//       const end = parsedDates[0].end ? parsedDates[0].end.date() : start;
-//       dateFilter = { createdAt: { $gte: start, $lte: end } };
-//     }
-
-//     // Build dynamic search regex for tag/emotion/other fields
-//     const searchRegex = new RegExp(search, "i"); // case-insensitive
-
-//     const filters = [];
-
-//     // Full-text search
-//     filters.push({ $text: { $search: search } });
-
-//     // Dynamic tag/emotion/other field search
-//     filters.push({
-//       $or: [
-//         { tags: searchRegex },
-//         { emotions: searchRegex },
-//         { transcript: searchRegex },
-//         { title: searchRegex },
-//         { description: searchRegex },
-//         { story: searchRegex },
-//       ],
-//     });
-
-//     // Date filter if parsed
-//     if (dateFilter) filters.push(dateFilter);
-
-//     const query = { $and: filters };
-
-//     // Execute query with text score
-//     const videos = await Media.find(query, { score: { $meta: "textScore" } })
-//       .sort({ score: { $meta: "textScore" }, createdAt: -1 })
-//       .lean();
-
-//     // Normalize confidence 0-100
-//     const maxScore = videos.length > 0 ? videos[0].score : 1;
-//     const videosWithConfidence = videos.map((v) => ({
-//       ...v,
-//       confidence: maxScore ? Math.round((v.score / maxScore) * 100) : 0,
-//     }));
-
-//     res.status(200).json({ videos: videosWithConfidence });
-//   } catch (err) {
-//     console.error("Search error:", err);
-//     res.status(500).json({ error: "Search failed" });
-//   }
-// };
-
-// thounds of video
-
-
-
-
-
-
-// POST /api/story/generate-all - Generates tags, emotions, story from transcript & updates media
 export const generateTagsAndStory = async (req, res) => {
   try {
     const { mediaId, transcript, title } = req.body;
@@ -526,110 +468,6 @@ export const triggerVideoRender = async (req, res) => {
     res.status(500).json({ error: 'Failed to trigger render job' });
   }
 };
-
-
-// POST /api/speech/generate-video
-// export const generateAndRenderVideo = async (req, res) => {
-//   const { storyText, images, mediaId } = req.body;
-
-//   if (!storyText || !images?.length) {
-//     return res.status(400).json({ error: 'Story and images are required' });
-//   }
-
-//   try {
-//     const perImageDuration = 2;
-//     const maxTotalDuration = 12;
-//     const maxImages = Math.floor(maxTotalDuration / perImageDuration);
-//     const trimmedImages = images.slice(0, maxImages);
-
-//     let voiceUrl;
-//     const media = await Media.findById(mediaId);
-
-//     if (media?.voiceUrl) {
-//       voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}${media.voiceUrl}`;
-//     } else {
-//       const voicePath = await generateVoiceOver(storyText, `voice-${mediaId || Date.now()}.mp3`);
-//       const voiceFilename = path.basename(voicePath);
-//       voiceUrl = `${process.env.FRONTEND_URL || 'https://footage-to-reel.onrender.com'}/uploads/audio/${voiceFilename}`;
-
-//       if (media) {
-//         media.voiceUrl = `/uploads/audio/${voiceFilename}`;
-//         await media.save();
-//       }
-//     }
-
-//     const response = await fetch('https://api.shotstack.io/stage/render', {
-//       method: 'POST',
-//       headers: {
-//         'Content-Type': 'application/json',
-//         'x-api-key': process.env.SHOTSTACK_API_KEY
-//       },
-//       body: JSON.stringify({
-//         timeline: {
-//           background: "#000000",
-//           tracks: [
-//             {
-//               clips: trimmedImages.map((img, i) => ({
-//                 asset: { type: "image", src: img },
-//                 start: i * perImageDuration,
-//                 length: perImageDuration,
-//                 transition: { in: "fade", out: "fade" }
-//               }))
-//             },
-//             {
-//               clips: [
-//                 {
-//                   asset: { type: "audio", src: voiceUrl },
-//                   start: 0,
-//                   length: trimmedImages.length * perImageDuration
-//                 }
-//               ]
-//             }
-//           ]
-//         },
-//         output: {
-//           format: "mp4",
-//           resolution: "sd"
-//         }
-//       })
-//     });
-
-//     const data = await response.json();
-//     const renderId = data?.response?.id;
-//     const videoUrl = data?.response?.url || null;
-
-//     if (!renderId) {
-//       console.error('❌ Shotstack did not return render ID:', data);
-//       return res.status(500).json({ success: false, error: 'Render ID not received' });
-//     }
-
-//     await Media.findByIdAndUpdate(mediaId, {
-//       $set: {
-//         voiceUrl,
-//         images: trimmedImages,
-//         storyUrl: videoUrl,
-//         renderId,
-//         status: 'video_requested'
-//       }
-//     });
-
-//     console.log(`✅ Video render started. Media ID: ${mediaId}, Render ID: ${renderId}`);
-
-//     // ✅ Send full response with renderId to frontend
-//     res.status(200).json({
-//       success: true,
-//       renderId,
-//       id: mediaId,
-//       storyUrl: videoUrl || null
-//     });
-
-//   } catch (err) {
-//     console.error('❌ Video generation failed:', err.message);
-//     res.status(500).json({ error: 'Video generation failed' });
-//   }
-// };
-// POST /api/speech/generate-video
-
 
 export const generateAndRenderVideo = async (req, res) => {
   const { storyText, images, mediaId } = req.body;

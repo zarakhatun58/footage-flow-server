@@ -406,7 +406,7 @@ export const editVideo = async (req, res) => {
 
 export const saveFinalVideo = async (req, res) => {
   try {
-     const { mediaId, videoUrl, title } = req.body; // accept URL directly
+     const { mediaId, videoUrl, title } = req.body; 
 
     if (!videoUrl) {
       return res.status(400).json({ error: "Video URL is required" });

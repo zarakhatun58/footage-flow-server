@@ -11,7 +11,8 @@ import {
   generateAndRenderVideo,
   checkRenderStatus,
   generateStoryVideo,
-  createStoryPlan
+  createStoryPlan,
+  getStoryById
 } from '../controllers/storyController.js';
 import Story from '../models/Story.js';
 
@@ -28,6 +29,7 @@ router.post('/story/generate-all', generateTagsAndStory);
 router.post('/speech/generate-video', generateAndRenderVideo);
 router.get('/speech/render-status/:renderId', checkRenderStatus);
 router.post("/plan", createStoryPlan);
+router.get("/story/:id", getStoryById);
 // Step 2: Generate actual stitched video
 router.post("/generate-story-video", generateStoryVideo);
 // New endpoint for dynamic suggested searches:
