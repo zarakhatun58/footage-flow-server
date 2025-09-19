@@ -7,13 +7,15 @@ const cohere = new CohereClient({
 
 export async function generateWithCohere(prompt) {
   try {
-    const response = await cohere.generate({
-      model: "command-r-plus", // you can also try "command" or "command-light"
-      prompt,
+    // Use the new Chat API
+    const response = await cohere.chat({
+      model: "command-r-plus", // Chat-compatible model
+      message: prompt,
       max_tokens: 200,
     });
 
-    return response.generations[0].text.trim();
+    // The text is now inside response.text
+    return response.text.trim();
   } catch (error) {
     console.error("❌ Cohere request failed:", error);
     throw new Error(`[Cohere API Error]: ${error.message}`);

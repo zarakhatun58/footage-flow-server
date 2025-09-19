@@ -20,12 +20,13 @@ export const createStoryPlan = async (req, res) => {
     const { prompt } = req.body;
     if (!prompt) return res.status(400).json({ error: "Prompt is required" });
 
-    const story = await generateWithCohere(prompt);
+    const story = await generateWithCohere(prompt); 
     res.json({ story });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
+
 export const generateStoryVideo = async (req, res) => {
   try {
     const { text } = req.body;
