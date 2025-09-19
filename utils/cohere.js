@@ -9,7 +9,7 @@ export async function generateWithCohere(prompt) {
   try {
     // Use the new Chat API
     const response = await cohere.chat({
-      model: "command-r-plus", // Chat-compatible model
+      model: "command-r-08-2024", // Chat-compatible model
       message: prompt,
       max_tokens: 200,
     });
