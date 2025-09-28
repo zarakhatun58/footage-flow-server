@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import reelUser from '../models/User.js';
 import { sendEmail } from '../utils/sendEmail.js';
 import { OAuth2Client } from 'google-auth-library';
+import axios from 'axios';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -60,9 +61,10 @@ export const login = async (req, res) => {
 };
 
 export const loginWithGoogle = async (req, res) => {
-  const { token } = req.body;
+  const { idToken, accessToken } = req.body;  
+
   try {
-    const ticket = await client.verifyIdToken({ idToken: token, audience: process.env.GOOGLE_CLIENT_ID });
+    const ticket = await client.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();
     if (!payload) return res.status(400).json({ error: 'Invalid Google token' });
 
@@ -73,12 +75,42 @@ export const loginWithGoogle = async (req, res) => {
       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
     }
 
+    // ⬇️ CHANGE 3: store accessToken for Google Photos API
+    if (accessToken) {
+      user.googleAccessToken = accessToken;
+      await user.save();
+    }
+
     const appToken = signToken(user);
 
-    res.json({ token: appToken, user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic } });
+    res.json({
+      token: appToken,
+      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
+    });
   } catch (err) {
     console.error(err);
     res.status(401).json({ error: 'Google login failed' });
+  }
+};
+
+export const getGooglePhotos = async (req, res) => {
+  try {
+    const user = await reelUser.findById(req.userId);
+    if (!user?.googleAccessToken) {
+      return res.status(401).json({ error: "No Google Photos access" });
+    }
+
+    const photosRes = await axios.get(
+      "https://photoslibrary.googleapis.com/v1/mediaItems",
+      {
+        headers: { Authorization: `Bearer ${user.googleAccessToken}` },
+      }
+    );
+
+    res.json(photosRes.data);
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to fetch photos" });
   }
 };
 
