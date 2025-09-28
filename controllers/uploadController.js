@@ -7,8 +7,10 @@ import { getEmotionLabels } from '../utils/emotion.js';
 import visionClient from '../utils/visionClient.js';
 import { transcribeAudio } from '../utils/transcriptionService.js';
 import { generateVideoToS3 } from '../utils/uploadToS3.js';
+import { getStoryFromGroq } from './../groq/groqClient.js';
 
 
+// ------------------ Helpers ------------------
 
 export const generateTagsFromTranscript = async (transcript) => {
   const words = transcript
@@ -31,8 +33,10 @@ export const getImageTranscript = async (imagePath) => {
   }
 };
 
-
 const API_PUBLIC_URL = process.env.API_PUBLIC_URL || 'http://localhost:5000';
+
+
+// ------------------ Upload Handler ------------------
 
 export const handleUpload = async (req, res) => {
   try {
@@ -48,7 +52,7 @@ export const handleUpload = async (req, res) => {
     const allFiles = [...imageFiles, ...videoFiles, ...voiceFiles];
 
     for (const file of allFiles) {
-      const filePath = file.path; // local uploads/<filename>
+      const filePath = file.path;
       const mimeType = file.mimetype;
 
       let mediaType = 'unknown';
@@ -56,20 +60,18 @@ export const handleUpload = async (req, res) => {
       else if (mimeType.startsWith('audio/')) mediaType = 'audio';
       else if (mimeType.startsWith('image/')) mediaType = 'image';
 
-      // Local public URL for previews
       const localPublicUrl = `${API_PUBLIC_URL}/uploads/${file.filename}`;
 
-      // Defaults
       let transcript = 'Not available';
       let emotions = ['Not detected'];
       let tags = ['Not generated'];
 
-      // Create initial media doc
+      // Initial doc
       const mediaDoc = new Media({
         filename: file.filename,
         mediaType,
         transcript,
-        emotions, 
+        emotions,
         tags,
         storyUrl: mediaType === 'video' ? localPublicUrl : '',
         images: mediaType === 'image' ? [localPublicUrl] : [],
@@ -110,8 +112,8 @@ export const handleUpload = async (req, res) => {
           if (isFinal) {
             const s3Key = `final-videos/${file.filename}`;
             const s3Url = await generateVideoToS3({
-              imagePaths: [filePath],       // since we already have a video file, wrap in array
-              audioPath: null,              // no separate audio provided here
+              imagePaths: [filePath],
+              audioPath: null,
               s3Bucket: process.env.AWS_BUCKET_NAME,
               s3Key
             });
@@ -122,7 +124,22 @@ export const handleUpload = async (req, res) => {
           }
         }
 
-        // Update metadata
+        // ✅ Auto Story Generation
+        if (transcript && transcript.trim()) {
+          try {
+            const defaultPrompt = "Write an engaging short story based on this content.";
+            const { story, prompt: usedPrompt } = await getStoryFromGroq(defaultPrompt, transcript);
+
+            if (story && story.trim()) {
+              mediaDoc.story = story;
+              mediaDoc.prompt = usedPrompt;
+            }
+          } catch (err) {
+            console.error("❌ Story generation failed:", err.message);
+          }
+        }
+
+        // Final metadata update
         mediaDoc.transcript = transcript || 'Not available';
         mediaDoc.emotions = Array.isArray(emotions) && emotions.length ? emotions : ['Not detected'];
         mediaDoc.tags = Array.isArray(tags) && tags.length ? tags : ['Not generated'];
@@ -135,7 +152,7 @@ export const handleUpload = async (req, res) => {
         await mediaDoc.save();
       }
 
-      // Push response object
+      // Push response
       uploaded.push({
         _id: mediaDoc._id,
         filename: mediaDoc.filename,
@@ -146,6 +163,8 @@ export const handleUpload = async (req, res) => {
         images: mediaDoc.images,
         voiceUrl: mediaDoc.voiceUrl,
         storyUrl: mediaDoc.storyUrl,
+        story: mediaDoc.story,     // ✅ now returned
+        prompt: mediaDoc.prompt,   // ✅ now returned
         status: mediaDoc.status,
         likes: mediaDoc.likes,
         shares: mediaDoc.shares,
@@ -162,3 +181,38 @@ export const handleUpload = async (req, res) => {
 };
 
 
+// ------------------ Manual Story API ------------------
+// POST /api/generate
+export const generateStory = async (req, res) => {
+  const { prompt, transcript, filename = 'transcript_only_input', mediaType = 'video' } = req.body;
+
+  if (!prompt?.trim() || !transcript?.trim()) {
+    return res.status(400).json({ error: 'Prompt and transcript are required' });
+  }
+
+  try {
+    const { story, prompt: usedPrompt } = await getStoryFromGroq(prompt, transcript);
+
+    if (!story || typeof story !== 'string') {
+      throw new Error('Invalid story generated');
+    }
+
+    const newVideo = new Media({
+      filename,
+      mediaType,
+      transcript,
+      story,
+      prompt: usedPrompt,
+      emotion: 'neutral',
+      createdAt: new Date(),
+    });
+
+    await newVideo.save();
+
+    console.log('✅ Story generated and saved with ID:', newVideo._id);
+    res.status(201).json({ success: true, story, prompt: usedPrompt, id: newVideo._id });
+  } catch (err) {
+    console.error('❌ Error generating story:', err.message);
+    res.status(500).json({ error: 'Failed to generate story' });
+  }
+};
