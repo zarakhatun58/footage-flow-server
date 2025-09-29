@@ -9,7 +9,8 @@ import {
   viewMedia,
   getRankedMedia,
   getTrendingMedia,
-  getMediaStats
+  getMediaStats,
+  getTotalViews
 } from "../controllers/engagementController.js";
 import { viewCooldown } from "../middleware/viewCooldown.js";
 
@@ -27,4 +28,5 @@ router.post("/:id/share", shareMedia);
 router.post("/:id/view", viewCooldown, viewMedia);
 router.get('/:id/shorturl', getShortUrl);
 router.get("/:id/stats", getMediaStats);
+router.get("/views/total", getTotalViews);
 export default router;

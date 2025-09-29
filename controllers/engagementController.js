@@ -184,3 +184,15 @@ export const getShortUrl = async (req, res) => {
     return res.status(500).json({ success: false, error: err.message });
   }
 };
+
+export const getTotalViews = async (_req, res) => {
+  try {
+    const result = await Media.aggregate([
+      { $group: { _id: null, totalViews: { $sum: "$views" } } }
+    ]);
+    const totalViews = result[0]?.totalViews || 0;
+    res.json({ success: true, totalViews });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
