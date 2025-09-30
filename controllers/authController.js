@@ -61,26 +61,49 @@ export const login = async (req, res) => {
 };
 
 export const loginWithGoogle = async (req, res) => {
-  const { idToken, accessToken } = req.body;  
+  const { code } = req.body; // authorization code from frontend
+  if (!code) return res.status(400).json({ error: 'Authorization code required' });
 
   try {
-    const ticket = await client.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
+    // 1️⃣ Exchange code for tokens
+    const tokenRes = await axios.post(
+      'https://oauth2.googleapis.com/token',
+      null,
+      {
+        params: {
+          code,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+          grant_type: 'authorization_code',
+        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      }
+    );
+
+    const { id_token, access_token } = tokenRes.data;
+
+    // 2️⃣ Verify id_token
+    const ticket = await client.verifyIdToken({
+      idToken: id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
     const payload = ticket.getPayload();
     if (!payload) return res.status(400).json({ error: 'Invalid Google token' });
 
     const { sub: googleId, email, name, picture } = payload;
 
+    // 3️⃣ Find or create user
     let user = await reelUser.findOne({ email });
     if (!user) {
       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
     }
 
-    // ⬇️ CHANGE 3: store accessToken for Google Photos API
-    if (accessToken) {
-      user.googleAccessToken = accessToken;
-      await user.save();
-    }
+    // 4️⃣ Store access_token for Google Photos API
+    user.googleAccessToken = access_token;
+    await user.save();
 
+    // 5️⃣ Sign app JWT
     const appToken = signToken(user);
 
     res.json({
@@ -88,10 +111,43 @@ export const loginWithGoogle = async (req, res) => {
       user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
     });
   } catch (err) {
-    console.error(err);
+    console.error('Google login error:', err.response?.data || err.message);
     res.status(401).json({ error: 'Google login failed' });
   }
 };
+
+// export const loginWithGoogle = async (req, res) => {
+//   const { idToken, accessToken } = req.body;  
+
+//   try {
+//     const ticket = await client.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
+//     const payload = ticket.getPayload();
+//     if (!payload) return res.status(400).json({ error: 'Invalid Google token' });
+
+//     const { sub: googleId, email, name, picture } = payload;
+
+//     let user = await reelUser.findOne({ email });
+//     if (!user) {
+//       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+//     }
+
+//     // ⬇️ CHANGE 3: store accessToken for Google Photos API
+//     if (accessToken) {
+//       user.googleAccessToken = accessToken;
+//       await user.save();
+//     }
+
+//     const appToken = signToken(user);
+
+//     res.json({
+//       token: appToken,
+//       user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
+//     });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(401).json({ error: 'Google login failed' });
+//   }
+// };
 
 export const getGooglePhotos = async (req, res) => {
   try {
