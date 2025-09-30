@@ -60,14 +60,15 @@ export const login = async (req, res) => {
   }
 };
 
+// Google login controller
 export const loginWithGoogle = async (req, res) => {
-  const { code } = req.body; // authorization code from frontend
-  if (!code) return res.status(400).json({ error: 'Authorization code required' });
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: "Authorization code required" });
 
   try {
-    // 1️⃣ Exchange code for tokens
+    // 1️⃣ Exchange code for tokens (access_token + refresh_token)
     const tokenRes = await axios.post(
-      'https://oauth2.googleapis.com/token',
+      "https://oauth2.googleapis.com/token",
       null,
       {
         params: {
@@ -75,46 +76,85 @@ export const loginWithGoogle = async (req, res) => {
           client_id: process.env.GOOGLE_CLIENT_ID,
           client_secret: process.env.GOOGLE_CLIENT_SECRET,
           redirect_uri: process.env.GOOGLE_REDIRECT_URI,
-          grant_type: 'authorization_code',
+          grant_type: "authorization_code",
         },
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
       }
     );
 
-    const { id_token, access_token } = tokenRes.data;
+    const { id_token, access_token, refresh_token } = tokenRes.data;
 
-    // 2️⃣ Verify id_token
+    // 2️⃣ Verify Google ID token
     const ticket = await client.verifyIdToken({
       idToken: id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    if (!payload) return res.status(400).json({ error: 'Invalid Google token' });
+    if (!payload) return res.status(400).json({ error: "Invalid Google token" });
 
     const { sub: googleId, email, name, picture } = payload;
 
-    // 3️⃣ Find or create user
+    // 3️⃣ Find or create user in DB
     let user = await reelUser.findOne({ email });
     if (!user) {
       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
     }
 
-    // 4️⃣ Store access_token for Google Photos API
+    // 4️⃣ Save Google tokens (important for Google Photos)
     user.googleAccessToken = access_token;
+    if (refresh_token) user.googleRefreshToken = refresh_token; // save refresh token
     await user.save();
 
-    // 5️⃣ Sign app JWT
+    // 5️⃣ Issue app JWT for your app
     const appToken = signToken(user);
 
+    // ✅ Respond with app token + user info
     res.json({
       token: appToken,
       user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
     });
   } catch (err) {
-    console.error('Google login error:', err.response?.data || err.message);
-    res.status(401).json({ error: 'Google login failed' });
+    console.error("Google login error:", err.response?.data || err.message);
+    res.status(401).json({ error: "Google login failed" });
   }
 };
+
+// Callback controller for OAuth redirect flow
+export const googleCallback = async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send("No code provided");
+
+  try {
+    // ✅ Reuse loginWithGoogle logic
+    const fakeReq = { body: { code } };
+    let jsonData;
+
+    const fakeRes = {
+      json: (data) => { jsonData = data; },
+      status: (s) => ({ json: (data) => { jsonData = { ...data, status: s }; } }),
+    };
+
+    await loginWithGoogle(fakeReq, fakeRes);
+
+    if (!jsonData?.token) throw new Error("Google login failed");
+
+    const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
+
+    // ✅ Redirect user to frontend with token & user info in query
+    res.redirect(
+      `${FRONTEND_URL}/auth/callback?token=${jsonData.token}&email=${encodeURIComponent(
+        jsonData.user.email
+      )}&username=${encodeURIComponent(
+        jsonData.user.username
+      )}&profilePic=${encodeURIComponent(jsonData.user.profilePic || "")}`
+    );
+  } catch (err) {
+    console.error("Google callback error:", err.message);
+    res.status(500).send("Google callback failed");
+  }
+};
+
+
 
 // export const loginWithGoogle = async (req, res) => {
 //   const { idToken, accessToken } = req.body;  
