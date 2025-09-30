@@ -63,16 +63,10 @@ export const login = async (req, res) => {
 // Google login controller
 export const loginWithGoogle = async (req, res) => {
   const { code } = req.body;
-  console.log("Step 0: Received code from frontend:", code);
-
-  if (!code) {
-    console.log("Step 0: No authorization code provided");
-    return res.status(400).json({ error: "Authorization code required" });
-  }
+  if (!code) return res.status(400).json({ error: "Authorization code required" });
 
   try {
-    // 1️⃣ Exchange code for tokens
-    console.log("Step 1: Exchanging code for tokens...");
+    // Exchange code for Google tokens
     const tokenRes = await axios.post(
       "https://oauth2.googleapis.com/token",
       null,
@@ -89,54 +83,35 @@ export const loginWithGoogle = async (req, res) => {
     );
 
     const { id_token, access_token, refresh_token } = tokenRes.data;
-    console.log("Step 1: Tokens received:", { id_token, access_token, refresh_token });
 
-    // 2️⃣ Verify Google ID token
-    console.log("Step 2: Verifying ID token...");
+    // Verify ID token
     const ticket = await client.verifyIdToken({
       idToken: id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    if (!payload) {
-      console.log("Step 2: Invalid Google token");
-      return res.status(400).json({ error: "Invalid Google token" });
-    }
+    if (!payload) return res.status(400).json({ error: "Invalid Google token" });
 
     const { sub: googleId, email, name, picture } = payload;
-    console.log("Step 2: Payload verified:", { googleId, email, name, picture });
 
-    // 3️⃣ Find or create user
-    console.log("Step 3: Finding or creating user in DB...");
+    // Find or create user
     let user = await reelUser.findOne({ email });
-    if (!user) {
-      console.log("Step 3: User not found, creating new user...");
-      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
-    } else {
-      console.log("Step 3: User found:", user.email);
-    }
+    if (!user) user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
 
-    // 4️⃣ Save Google tokens
-    console.log("Step 4: Saving Google tokens...");
+    // Save tokens
     user.googleAccessToken = access_token;
-    if (refresh_token) {
-      user.googleRefreshToken = refresh_token;
-      console.log("Step 4: Refresh token saved");
-    }
+    if (refresh_token) user.googleRefreshToken = refresh_token;
     await user.save();
 
-    // 5️⃣ Issue app JWT
-    console.log("Step 5: Signing JWT token for app...");
+    // Sign JWT
     const appToken = signToken(user);
 
-    // ✅ Response
-    console.log("Step 6: Sending response with token and user info");
     res.json({
       token: appToken,
-      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
+      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic }
     });
   } catch (err) {
-    console.error("Step X: Google login error:", err.response?.data || err.message);
+    console.error("Google login error:", err.response?.data || err.message);
     res.status(401).json({ error: "Google login failed" });
   }
 };
@@ -144,43 +119,26 @@ export const loginWithGoogle = async (req, res) => {
 // Callback controller for OAuth redirect flow
 export const googleCallback = async (req, res) => {
   const { code } = req.query;
-  console.log("Callback: Received code:", code);
   if (!code) return res.status(400).send("No code provided");
 
   try {
-    // Reuse loginWithGoogle logic
+    // Call loginWithGoogle internally
     const fakeReq = { body: { code } };
     let jsonData;
-
     const fakeRes = {
-      json: (data) => {
-        jsonData = data;
-        console.log("Callback: loginWithGoogle response:", data);
-      },
-      status: (s) => ({
-        json: (data) => {
-          jsonData = { ...data, status: s };
-          console.log(`Callback: status ${s}`, data);
-        },
-      }),
+      json: (data) => jsonData = data,
+      status: (s) => ({ json: (data) => jsonData = { ...data, status: s } }),
     };
-
     await loginWithGoogle(fakeReq, fakeRes);
 
     if (!jsonData?.token) throw new Error("Google login failed");
 
     const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
-
-    console.log("Callback: Redirecting to frontend with token and user info");
     res.redirect(
-      `${FRONTEND_URL}/auth/callback?token=${jsonData.token}&email=${encodeURIComponent(
-        jsonData.user.email
-      )}&username=${encodeURIComponent(
-        jsonData.user.username
-      )}&profilePic=${encodeURIComponent(jsonData.user.profilePic || "")}`
+      `${FRONTEND_URL}/auth/callback?token=${jsonData.token}&email=${encodeURIComponent(jsonData.user.email)}&username=${encodeURIComponent(jsonData.user.username)}&profilePic=${encodeURIComponent(jsonData.user.profilePic || '')}`
     );
   } catch (err) {
-    console.error("Callback: Google callback error:", err.message);
+    console.error("Google callback error:", err.message);
     res.status(500).send("Google callback failed");
   }
 };
