@@ -100,33 +100,31 @@ export const loginWithGoogle = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      body.toString(),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
-
-    const { id_token, access_token, refresh_token } = tokenRes.data;
-
-    const ticket = await client.verifyIdToken({
-      idToken: id_token,
-      audience: process.env.GOOGLE_CLIENT_ID,
+    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
+
+    const { id_token, access_token } = tokenRes.data;
+
+    // Verify id_token
+    const ticket = await client.verifyIdToken({ idToken: id_token, audience: process.env.GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();
     if (!payload) return res.status(400).json({ error: "Invalid Google token" });
 
     const { sub: googleId, email, name, picture } = payload;
 
+    // Find or create user
     let user = await reelUser.findOne({ email });
     if (!user) {
       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
     }
 
-    // Save tokens
+    // Save only access token (⚡ no refresh token)
     user.googleAccessToken = access_token;
-    if (refresh_token) user.googleRefreshToken = refresh_token; // only update if new token
+    user.googleRefreshToken = undefined; // ensure cleared
     await user.save();
 
+    // Issue app JWT
     const appToken = signToken(user);
 
     return res.json({
@@ -141,15 +139,14 @@ export const loginWithGoogle = async (req, res) => {
 
 export const googleCallback = async (req, res) => {
   const { code } = req.query;
-  if (!code) return res.status(400).send("No code provided");
+  if (!code) return res.status(400).send('No code provided');
 
   try {
-    // Exchange code for tokens
     const body = new URLSearchParams({
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI, // must match frontend REDIRECT_URI
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
       grant_type: "authorization_code",
     });
 
@@ -157,71 +154,71 @@ export const googleCallback = async (req, res) => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
 
-    const { id_token, access_token, refresh_token } = tokenRes.data;
+    const { id_token, access_token } = tokenRes.data;
 
-    // Decode ID token
-    const ticket = await client.verifyIdToken({
-      idToken: id_token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    const { email, name, picture, sub: googleId } = ticket.getPayload();
+    // Verify
+    const ticket = await client.verifyIdToken({ idToken: id_token, audience: process.env.GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    const { email, name, picture, sub: googleId } = payload;
 
-    // Save or create user
+    // Find/create user
     let user = await reelUser.findOne({ email });
     if (!user) {
       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
     }
+
+    // Save only access token (⚡ no refresh token)
     user.googleAccessToken = access_token;
-    if (refresh_token) user.googleRefreshToken = refresh_token; // always overwrite if new one comes
+    user.googleRefreshToken = undefined;
     await user.save();
 
-    // Issue your app’s JWT
     const appToken = signToken(user);
 
-    // Redirect to frontend with JWT
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/auth/callback?token=${encodeURIComponent(appToken)}&email=${encodeURIComponent(
-        email
-      )}&username=${encodeURIComponent(name)}&profilePic=${encodeURIComponent(picture)}`
-    );
+    const FRONTEND_URL = process.env.FRONTEND_URL;
+    res.redirect(`${FRONTEND_URL}/auth/callback?token=${appToken}&email=${email}&username=${name}&profilePic=${picture}`);
   } catch (err) {
     console.error("Google callback error:", err.response?.data || err.message);
     res.status(500).send("Google callback failed");
   }
 };
 
+
 export const getGooglePhotos = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(401).json({ error: "User not found" });
 
-    let accessToken = user.googleAccessToken;
+    // no access token stored
+    if (!user.googleAccessToken) {
+      return res.status(401).json({ error: "No Google access token. Please log in again." });
+    }
 
     try {
-      const photosRes = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      // try fetching photos with current token
+      const photosRes = await axios.get(
+        "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
+        { headers: { Authorization: `Bearer ${user.googleAccessToken}` } }
+      );
+
       return res.json(photosRes.data);
+
     } catch (err) {
-      if (err.response?.status === 401 && user.googleRefreshToken) {
-        const newToken = await refreshGoogleAccessToken(user);
-        if (newToken) {
-          const photosRes = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems", {
-            headers: { Authorization: `Bearer ${newToken}` },
-          });
-          return res.json(photosRes.data);
-        }
+      // If token expired or user revoked consent
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        console.warn("Google access expired or needs re-consent.");
+        return res.status(403).json({
+          error: "Google account needs re-login for Photos access.",
+        });
       }
-      if (!user.googleRefreshToken) {
-        return res.status(403).json({ error: "Google account needs re-consent for Photos access." });
-      }
-      throw err;
+
+      throw err; // other errors
     }
   } catch (err) {
     console.error("getGooglePhotos error:", err.response?.data || err.message);
     return res.status(500).json({ error: "Failed to fetch photos" });
   }
 };
+
 
 export const getProfile = async (req, res) => {
   try {
