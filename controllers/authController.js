@@ -62,9 +62,11 @@ export const login = async (req, res) => {
 
 // helper to refresh tokens
 
+// helper to refresh tokens
 export const refreshGoogleAccessToken = async (user) => {
   if (!user.googleRefreshToken) {
-    throw new Error("No refresh token available");
+    console.warn("No refresh token available for this user; cannot refresh.");
+    return null; // ⚡️ don’t throw error
   }
 
   try {
@@ -88,14 +90,18 @@ export const refreshGoogleAccessToken = async (user) => {
       await user.save();
       return access_token;
     }
-    throw new Error("Failed to refresh access token");
+    console.error("Failed to refresh access token");
+    return null;
   } catch (err) {
     console.error("Error refreshing Google token:", err.response?.data || err.message);
-    throw err;
+    return null;
   }
 };
 
+
+
 // Google login controller
+
 export const loginWithGoogle = async (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: "Authorization code required" });
@@ -204,7 +210,7 @@ export const getGooglePhotos = async (req, res) => {
     let accessToken = user.googleAccessToken;
 
     try {
-      // Attempt with current token
+      // Try fetching photos with current access token
       const photosRes = await axios.get(
         "https://photoslibrary.googleapis.com/v1/mediaItems",
         { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -212,13 +218,19 @@ export const getGooglePhotos = async (req, res) => {
       return res.json(photosRes.data);
     } catch (err) {
       if (err.response?.status === 401) {
-        // Expired → refresh
-        console.log("Access token expired, refreshing...");
-        accessToken = await refreshGoogleAccessToken(user);
+        // Token expired → try refreshing
+        console.log("Access token expired, attempting refresh...");
+        const newToken = await refreshGoogleAccessToken(user);
 
+        if (!newToken) {
+          // No refresh token available → cannot refresh
+          return res.status(401).json({ error: "No refresh token available. Please login again." });
+        }
+
+        // Retry request with new token
         const photosRes = await axios.get(
           "https://photoslibrary.googleapis.com/v1/mediaItems",
-          { headers: { Authorization: `Bearer ${accessToken}` } }
+          { headers: { Authorization: `Bearer ${newToken}` } }
         );
         return res.json(photosRes.data);
       }
@@ -229,6 +241,7 @@ export const getGooglePhotos = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch photos" });
   }
 };
+
 
 export const getProfile = async (req, res) => {
   try {
