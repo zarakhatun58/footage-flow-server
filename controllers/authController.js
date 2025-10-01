@@ -62,11 +62,7 @@ export const login = async (req, res) => {
 
 // helper to refresh tokens
 export const refreshGoogleAccessToken = async (user) => {
-  if (!user.googleRefreshToken) {
-    console.warn("No refresh token available for user", user.email);
-    return null;
-  }
-
+  if (!user.googleRefreshToken) return null;
   try {
     const body = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
@@ -79,17 +75,14 @@ export const refreshGoogleAccessToken = async (user) => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
 
-    const { access_token } = res.data;
-    if (access_token) {
-      user.googleAccessToken = access_token;
+    if (res.data.access_token) {
+      user.googleAccessToken = res.data.access_token;
       await user.save();
-      return access_token;
+      return res.data.access_token;
     }
-
-    console.error("Refresh response missing access_token:", res.data);
     return null;
   } catch (err) {
-    console.error("Error refreshing Google token:", err.response?.data || err.message);
+    console.error("Refresh token failed:", err.response?.data || err.message);
     return null;
   }
 };
@@ -107,46 +100,38 @@ export const loginWithGoogle = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    const tokenRes = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      body.toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
 
     const { id_token, access_token, refresh_token } = tokenRes.data;
 
-    // Verify id_token
-    const ticket = await client.verifyIdToken({ idToken: id_token, audience: process.env.GOOGLE_CLIENT_ID });
+    const ticket = await client.verifyIdToken({
+      idToken: id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
     const payload = ticket.getPayload();
     if (!payload) return res.status(400).json({ error: "Invalid Google token" });
 
     const { sub: googleId, email, name, picture } = payload;
 
-    // Find or create user
     let user = await reelUser.findOne({ email });
     if (!user) {
       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
     }
 
     // Save tokens
-    if (access_token) user.googleAccessToken = access_token;
-
-    // ⬇️ Only update refresh token if Google actually sent one
-    if (refresh_token) {
-      user.googleRefreshToken = refresh_token;
-    }
-
+    user.googleAccessToken = access_token;
+    if (refresh_token) user.googleRefreshToken = refresh_token; // only update if new token
     await user.save();
 
-    // App JWT
     const appToken = signToken(user);
 
     return res.json({
       token: appToken,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        profilePic: user.profilePic,
-      },
+      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
     });
   } catch (err) {
     console.error("Google login error:", err.response?.data || err.message);
@@ -154,33 +139,54 @@ export const loginWithGoogle = async (req, res) => {
   }
 };
 
-
 export const googleCallback = async (req, res) => {
   const { code } = req.query;
   if (!code) return res.status(400).send("No code provided");
 
   try {
-    // reuse the same logic: call loginWithGoogle internally
-    const fakeReq = { body: { code } };
-    let jsonData;
-    const fakeRes = {
-      json: (d) => (jsonData = d),
-      status: (s) => ({ json: (d) => (jsonData = { ...d, status: s }) }),
-    };
+    // Exchange code for tokens
+    const body = new URLSearchParams({
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI, // must match frontend REDIRECT_URI
+      grant_type: "authorization_code",
+    });
 
-    await loginWithGoogle(fakeReq, fakeRes);
+    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
 
-    if (!jsonData?.token) throw new Error("Google login failed");
+    const { id_token, access_token, refresh_token } = tokenRes.data;
 
-    const FRONTEND_URL = process.env.FRONTEND_URL;
-    const redirectTo = `${FRONTEND_URL}/auth/callback?token=${encodeURIComponent(jsonData.token)}&email=${encodeURIComponent(
-      jsonData.user.email
-    )}&username=${encodeURIComponent(jsonData.user.username)}&profilePic=${encodeURIComponent(jsonData.user.profilePic || "")}`;
+    // Decode ID token
+    const ticket = await client.verifyIdToken({
+      idToken: id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const { email, name, picture, sub: googleId } = ticket.getPayload();
 
-    return res.redirect(redirectTo);
+    // Save or create user
+    let user = await reelUser.findOne({ email });
+    if (!user) {
+      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+    }
+    user.googleAccessToken = access_token;
+    if (refresh_token) user.googleRefreshToken = refresh_token; // always overwrite if new one comes
+    await user.save();
+
+    // Issue your app’s JWT
+    const appToken = signToken(user);
+
+    // Redirect to frontend with JWT
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/auth/callback?token=${encodeURIComponent(appToken)}&email=${encodeURIComponent(
+        email
+      )}&username=${encodeURIComponent(name)}&profilePic=${encodeURIComponent(picture)}`
+    );
   } catch (err) {
     console.error("Google callback error:", err.response?.data || err.message);
-    return res.status(500).send("Google callback failed");
+    res.status(500).send("Google callback failed");
   }
 };
 
@@ -192,18 +198,13 @@ export const getGooglePhotos = async (req, res) => {
     let accessToken = user.googleAccessToken;
 
     try {
-      // Try with current token
       const photosRes = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems", {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       return res.json(photosRes.data);
-
     } catch (err) {
       if (err.response?.status === 401 && user.googleRefreshToken) {
-        // Token expired → refresh
-        console.log("Access token expired, refreshing...");
         const newToken = await refreshGoogleAccessToken(user);
-
         if (newToken) {
           const photosRes = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems", {
             headers: { Authorization: `Bearer ${newToken}` },
@@ -211,13 +212,9 @@ export const getGooglePhotos = async (req, res) => {
           return res.json(photosRes.data);
         }
       }
-
-      // If no refresh token → just inform user without killing app
       if (!user.googleRefreshToken) {
-        console.warn("User has no refresh token, need re-consent:", user.email);
         return res.status(403).json({ error: "Google account needs re-consent for Photos access." });
       }
-
       throw err;
     }
   } catch (err) {
