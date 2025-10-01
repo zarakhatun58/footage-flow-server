@@ -60,13 +60,48 @@ export const login = async (req, res) => {
   }
 };
 
+// helper to refresh tokens
+
+export const refreshGoogleAccessToken = async (user) => {
+  if (!user.googleRefreshToken) {
+    throw new Error("No refresh token available");
+  }
+
+  try {
+    const res = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      null,
+      {
+        params: {
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          refresh_token: user.googleRefreshToken,
+          grant_type: "refresh_token",
+        },
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      }
+    );
+
+    const { access_token } = res.data;
+    if (access_token) {
+      user.googleAccessToken = access_token;
+      await user.save();
+      return access_token;
+    }
+    throw new Error("Failed to refresh access token");
+  } catch (err) {
+    console.error("Error refreshing Google token:", err.response?.data || err.message);
+    throw err;
+  }
+};
+
 // Google login controller
 export const loginWithGoogle = async (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: "Authorization code required" });
 
   try {
-    // Exchange code for Google tokens
+    // Exchange code for tokens
     const tokenRes = await axios.post(
       "https://oauth2.googleapis.com/token",
       null,
@@ -96,19 +131,33 @@ export const loginWithGoogle = async (req, res) => {
 
     // Find or create user
     let user = await reelUser.findOne({ email });
-    if (!user) user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+    if (!user) {
+      user = await reelUser.create({
+        googleId,
+        email,
+        username: name,
+        profilePic: picture,
+      });
+    }
 
     // Save tokens
     user.googleAccessToken = access_token;
-    if (refresh_token) user.googleRefreshToken = refresh_token;
+    if (refresh_token) {
+      user.googleRefreshToken = refresh_token;
+    }
     await user.save();
 
-    // Sign JWT
+    // Sign JWT for our app
     const appToken = signToken(user);
 
     res.json({
       token: appToken,
-      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic }
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        profilePic: user.profilePic,
+      },
     });
   } catch (err) {
     console.error("Google login error:", err.response?.data || err.message);
@@ -122,12 +171,12 @@ export const googleCallback = async (req, res) => {
   if (!code) return res.status(400).send("No code provided");
 
   try {
-    // Call loginWithGoogle internally
+    // Reuse loginWithGoogle logic
     const fakeReq = { body: { code } };
     let jsonData;
     const fakeRes = {
-      json: (data) => jsonData = data,
-      status: (s) => ({ json: (data) => jsonData = { ...data, status: s } }),
+      json: (data) => (jsonData = data),
+      status: (s) => ({ json: (data) => (jsonData = { ...data, status: s }) }),
     };
     await loginWithGoogle(fakeReq, fakeRes);
 
@@ -135,7 +184,11 @@ export const googleCallback = async (req, res) => {
 
     const FRONTEND_URL = process.env.FRONTEND_URL || "https://footage-to-reel.onrender.com";
     res.redirect(
-      `${FRONTEND_URL}/auth/callback?token=${jsonData.token}&email=${encodeURIComponent(jsonData.user.email)}&username=${encodeURIComponent(jsonData.user.username)}&profilePic=${encodeURIComponent(jsonData.user.profilePic || '')}`
+      `${FRONTEND_URL}/auth/callback?token=${jsonData.token}&email=${encodeURIComponent(
+        jsonData.user.email
+      )}&username=${encodeURIComponent(jsonData.user.username)}&profilePic=${encodeURIComponent(
+        jsonData.user.profilePic || ""
+      )}`
     );
   } catch (err) {
     console.error("Google callback error:", err.message);
@@ -143,7 +196,60 @@ export const googleCallback = async (req, res) => {
   }
 };
 
+export const getGooglePhotos = async (req, res) => {
+  try {
+    const user = await reelUser.findById(req.userId);
+    if (!user) return res.status(401).json({ error: "User not found" });
 
+    let accessToken = user.googleAccessToken;
+
+    try {
+      // Attempt with current token
+      const photosRes = await axios.get(
+        "https://photoslibrary.googleapis.com/v1/mediaItems",
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      return res.json(photosRes.data);
+    } catch (err) {
+      if (err.response?.status === 401) {
+        // Expired → refresh
+        console.log("Access token expired, refreshing...");
+        accessToken = await refreshGoogleAccessToken(user);
+
+        const photosRes = await axios.get(
+          "https://photoslibrary.googleapis.com/v1/mediaItems",
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        return res.json(photosRes.data);
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error("getGooglePhotos error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to fetch photos" });
+  }
+};
+
+export const getProfile = async (req, res) => {
+  try {
+    const user = await reelUser.findById(req.userId).select("-password");
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Optionally include latest Google access token for frontend
+    res.json({
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        profilePic: user.profilePic,
+        googleAccessToken: user.googleAccessToken, // ⚡️ optional but handy
+      },
+    });
+  } catch (err) {
+    console.error("getProfile error:", err.message);
+    res.status(500).json({ error: "Failed to fetch profile" });
+  }
+};
 
 // export const loginWithGoogle = async (req, res) => {
 //   const { idToken, accessToken } = req.body;  
@@ -178,39 +284,7 @@ export const googleCallback = async (req, res) => {
 //   }
 // };
 
-export const getGooglePhotos = async (req, res) => {
-  try {
-    const user = await reelUser.findById(req.userId);
-    if (!user?.googleAccessToken) {
-      return res.status(401).json({ error: "No Google Photos access" });
-    }
 
-    const photosRes = await axios.get(
-      "https://photoslibrary.googleapis.com/v1/mediaItems",
-      {
-        headers: { Authorization: `Bearer ${user.googleAccessToken}` },
-      }
-    );
-
-    res.json(photosRes.data);
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ error: "Failed to fetch photos" });
-  }
-};
-
-
-export const getProfile = async (req, res) => {
-  try {
-    const user = await reelUser.findById(req.userId).select('-password');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    // Consistent with other endpoints:
-    res.json({ user });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch profile' });
-  }
-};
 
 
 export const logout = (req, res) => {
