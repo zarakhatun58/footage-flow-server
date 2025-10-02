@@ -81,7 +81,7 @@ export const refreshGoogleAccessToken = async (user) => {
     if (res.data.access_token) {
       user.googleAccessToken = res.data.access_token;
 
-      // Sometimes Google returns a new refresh_token (rare, but handle it)
+      // ✅ Save new refresh token if Google returns it
       if (res.data.refresh_token) {
         user.googleRefreshToken = res.data.refresh_token;
       }
@@ -89,7 +89,6 @@ export const refreshGoogleAccessToken = async (user) => {
       await user.save();
       return res.data.access_token;
     }
-
     return null;
   } catch (err) {
     console.error("Refresh token failed:", err.response?.data || err.message);
@@ -100,11 +99,9 @@ export const refreshGoogleAccessToken = async (user) => {
       user.googleAccessToken = null;
       await user.save();
     }
-
     return null;
   }
 };
-
 
 
 // loginWithGoogle.js
@@ -234,23 +231,20 @@ export const getGooglePhotos = async (req, res) => {
     let accessToken = user.googleAccessToken;
 
     try {
-      // Try with current token
       const photosRes = await axios.get(
         "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
         { headers: { Authorization: `Bearer ${accessToken}` } }
       );
       return res.json(photosRes.data);
-
     } catch (err) {
       const status = err.response?.status;
 
-      // ✅ Refresh on 401 (expired) or 403 (missing scope)
+      // ✅ Retry if expired (401) or missing permission (403)
       if ((status === 401 || status === 403) && user.googleRefreshToken) {
         const newAccessToken = await refreshGoogleAccessToken(user);
         if (!newAccessToken) {
           return res.status(403).json({ error: "Google account needs re-login." });
         }
-
         const photosRes = await axios.get(
           "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
           { headers: { Authorization: `Bearer ${newAccessToken}` } }
@@ -265,8 +259,6 @@ export const getGooglePhotos = async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch photos" });
   }
 };
-
-
 
 
 
