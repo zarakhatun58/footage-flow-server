@@ -86,9 +86,18 @@ export const refreshGoogleAccessToken = async (user) => {
         user.googleRefreshToken = res.data.refresh_token;
       }
 
+      // ✅ Merge newly granted scopes if returned
+      if (res.data.scope) {
+        const newScopes = res.data.scope.split(" ");
+        const existingScopes = user.grantedScopes || [];
+        const mergedScopes = Array.from(new Set([...existingScopes, ...newScopes]));
+        user.grantedScopes = mergedScopes;
+      }
+
       await user.save();
       return res.data.access_token;
     }
+
     return null;
   } catch (err) {
     console.error("Refresh token failed:", err.response?.data || err.message);
@@ -97,12 +106,12 @@ export const refreshGoogleAccessToken = async (user) => {
     if (err.response?.data?.error === "invalid_grant") {
       user.googleRefreshToken = null;
       user.googleAccessToken = null;
+      user.grantedScopes = [];
       await user.save();
     }
     return null;
   }
 };
-
 
 // loginWithGoogle.js
 export const loginWithGoogle = async (req, res) => {
@@ -191,7 +200,8 @@ export const googleCallback = async (req, res) => {
       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
     );
 
-    const { id_token, access_token, refresh_token } = tokenRes.data;
+    const { id_token, access_token, refresh_token, scope } = tokenRes.data;
+    const grantedScopes = scope?.split(" ") || [];
 
     const ticket = await client.verifyIdToken({
       idToken: id_token,
@@ -203,16 +213,20 @@ export const googleCallback = async (req, res) => {
     let user = await reelUser.findOne({ email });
     if (!user) {
       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+    } else if (!user.googleId) {
+      user.googleId = googleId;
     }
 
-    // ✅ Always update tokens
+    // Update tokens and granted scopes
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
+    user.grantedScopes = grantedScopes;
+
     await user.save();
 
     const appToken = signToken(user);
-
     const FRONTEND_URL = process.env.FRONTEND_URL;
+
     res.redirect(
       `${FRONTEND_URL}/auth/callback?token=${appToken}&email=${email}&username=${name}&profilePic=${picture}`
     );
@@ -222,11 +236,16 @@ export const googleCallback = async (req, res) => {
   }
 };
 
-// getGooglePhotos.js
+
 export const getGooglePhotos = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(401).json({ error: "User not found" });
+
+    // Check if Photos scope granted
+    if (!user.grantedScopes?.includes("https://www.googleapis.com/auth/photoslibrary.readonly")) {
+      return res.status(403).json({ error: "Google Photos access required. Please login again." });
+    }
 
     let accessToken = user.googleAccessToken;
 
@@ -239,12 +258,13 @@ export const getGooglePhotos = async (req, res) => {
     } catch (err) {
       const status = err.response?.status;
 
-      // ✅ Retry if expired (401) or missing permission (403)
+      // Refresh token if expired
       if ((status === 401 || status === 403) && user.googleRefreshToken) {
         const newAccessToken = await refreshGoogleAccessToken(user);
         if (!newAccessToken) {
           return res.status(403).json({ error: "Google account needs re-login." });
         }
+
         const photosRes = await axios.get(
           "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
           { headers: { Authorization: `Bearer ${newAccessToken}` } }
@@ -259,6 +279,8 @@ export const getGooglePhotos = async (req, res) => {
     return res.status(500).json({ error: "Failed to fetch photos" });
   }
 };
+
+
 
 
 

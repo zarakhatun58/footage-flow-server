@@ -8,6 +8,7 @@ const reelUserSchema = new mongoose.Schema({
   password: String,
   googleAccessToken: String,   
   googleRefreshToken: String,  
+   grantedScopes: [String],
   createdAt: { type: Date, default: Date.now }
 });
 export default mongoose.model('reelUser', reelUserSchema);
