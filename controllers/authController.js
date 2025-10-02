@@ -80,6 +80,12 @@ export const refreshGoogleAccessToken = async (user) => {
 
     if (res.data.access_token) {
       user.googleAccessToken = res.data.access_token;
+
+      // Sometimes Google returns a new refresh_token (rare, but handle it)
+      if (res.data.refresh_token) {
+        user.googleRefreshToken = res.data.refresh_token;
+      }
+
       await user.save();
       return res.data.access_token;
     }
@@ -87,9 +93,18 @@ export const refreshGoogleAccessToken = async (user) => {
     return null;
   } catch (err) {
     console.error("Refresh token failed:", err.response?.data || err.message);
+
+    // If refresh_token is invalid, clear it so user must re-login
+    if (err.response?.data?.error === "invalid_grant") {
+      user.googleRefreshToken = null;
+      user.googleAccessToken = null;
+      await user.save();
+    }
+
     return null;
   }
 };
+
 
 
 // loginWithGoogle.js
