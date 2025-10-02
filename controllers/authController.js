@@ -242,43 +242,51 @@ export const getGooglePhotos = async (req, res) => {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(401).json({ error: "User not found" });
 
-    // Check if Photos scope granted
+    // Check Photos scope
     if (!user.grantedScopes?.includes("https://www.googleapis.com/auth/photoslibrary.readonly")) {
       return res.status(403).json({ error: "Google Photos access required. Please login again." });
     }
 
-    let accessToken = user.googleAccessToken;
+    if (!user.googleAccessToken) {
+      return res.status(403).json({ error: "Missing access token. Please re-login." });
+    }
 
-    try {
-      const photosRes = await axios.get(
-        "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      return res.json(photosRes.data);
-    } catch (err) {
-      const status = err.response?.status;
-
-      // Refresh token if expired
-      if ((status === 401 || status === 403) && user.googleRefreshToken) {
-        const newAccessToken = await refreshGoogleAccessToken(user);
-        if (!newAccessToken) {
-          return res.status(403).json({ error: "Google account needs re-login." });
-        }
-
+    const fetchPhotos = async (token) => {
+      try {
         const photosRes = await axios.get(
           "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
-          { headers: { Authorization: `Bearer ${newAccessToken}` } }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
         return res.json(photosRes.data);
-      }
+      } catch (err) {
+        console.error("Google Photos API error:", err.response?.data || err.message);
+        const status = err.response?.status;
 
-      throw err;
-    }
+        if ((status === 401 || status === 403) && user.googleRefreshToken) {
+          // Try refresh token
+          const newToken = await refreshGoogleAccessToken(user);
+          if (!newToken) {
+            return res.status(403).json({ error: "Google account needs re-login." });
+          }
+          // Retry API call
+          const retryRes = await axios.get(
+            "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
+            { headers: { Authorization: `Bearer ${newToken}` } }
+          );
+          return res.json(retryRes.data);
+        }
+
+        return res.status(status || 500).json({ error: err.response?.data || err.message });
+      }
+    };
+
+    return fetchPhotos(user.googleAccessToken);
   } catch (err) {
-    console.error("getGooglePhotos error:", err.response?.data || err.message);
-    return res.status(500).json({ error: "Failed to fetch photos" });
+    console.error("getGooglePhotos error:", err.message);
+    return res.status(500).json({ error: err.message || "Failed to fetch photos" });
   }
 };
+
 
 
 
