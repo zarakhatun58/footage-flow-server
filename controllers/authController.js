@@ -92,6 +92,7 @@ export const refreshGoogleAccessToken = async (user) => {
 };
 
 
+// loginWithGoogle.js
 export const loginWithGoogle = async (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: "Authorization code required" });
@@ -105,9 +106,11 @@ export const loginWithGoogle = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    const tokenRes = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      body.toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
 
     const { id_token, access_token, refresh_token } = tokenRes.data;
 
@@ -120,21 +123,21 @@ export const loginWithGoogle = async (req, res) => {
 
     const { sub: googleId, email, name, picture } = payload;
 
-    // Find existing user
+    // Find or create user
     let user = await reelUser.findOne({ email });
-
     if (!user) {
-      // Create new user
-      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
-    } else {
-      // Update Google ID if missing
-      if (!user.googleId) user.googleId = googleId;
+      user = await reelUser.create({
+        googleId,
+        email,
+        username: name,
+        profilePic: picture,
+      });
+    } else if (!user.googleId) {
+      user.googleId = googleId;
     }
 
-    // Always update access token
+    // ✅ Always update tokens
     user.googleAccessToken = access_token;
-
-    // Save refresh token if returned
     if (refresh_token) user.googleRefreshToken = refresh_token;
 
     await user.save();
@@ -143,7 +146,12 @@ export const loginWithGoogle = async (req, res) => {
 
     return res.json({
       token: appToken,
-      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        profilePic: user.profilePic,
+      },
     });
   } catch (err) {
     console.error("Google login error:", err.response?.data || err.message);
@@ -151,9 +159,10 @@ export const loginWithGoogle = async (req, res) => {
   }
 };
 
+// googleCallback.js
 export const googleCallback = async (req, res) => {
   const { code } = req.query;
-  if (!code) return res.status(400).send('No code provided');
+  if (!code) return res.status(400).send("No code provided");
 
   try {
     const body = new URLSearchParams({
@@ -164,9 +173,11 @@ export const googleCallback = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    const tokenRes = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      body.toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
 
     const { id_token, access_token, refresh_token } = tokenRes.data;
 
@@ -174,7 +185,6 @@ export const googleCallback = async (req, res) => {
       idToken: id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
-
     const payload = ticket.getPayload();
     const { email, name, picture, sub: googleId } = payload;
 
@@ -183,24 +193,24 @@ export const googleCallback = async (req, res) => {
       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
     }
 
-    // Always update access token
+    // ✅ Always update tokens
     user.googleAccessToken = access_token;
-
-    // Always save refresh token if returned
     if (refresh_token) user.googleRefreshToken = refresh_token;
-
     await user.save();
 
     const appToken = signToken(user);
-    const FRONTEND_URL = process.env.FRONTEND_URL;
 
-    res.redirect(`${FRONTEND_URL}/auth/callback?token=${appToken}&email=${email}&username=${name}&profilePic=${picture}`);
+    const FRONTEND_URL = process.env.FRONTEND_URL;
+    res.redirect(
+      `${FRONTEND_URL}/auth/callback?token=${appToken}&email=${email}&username=${name}&profilePic=${picture}`
+    );
   } catch (err) {
     console.error("Google callback error:", err.response?.data || err.message);
     res.status(500).send("Google callback failed");
   }
 };
 
+// getGooglePhotos.js
 export const getGooglePhotos = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId);
@@ -209,7 +219,7 @@ export const getGooglePhotos = async (req, res) => {
     let accessToken = user.googleAccessToken;
 
     try {
-      // Try fetching photos with current token
+      // Try with current token
       const photosRes = await axios.get(
         "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
         { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -217,26 +227,30 @@ export const getGooglePhotos = async (req, res) => {
       return res.json(photosRes.data);
 
     } catch (err) {
-      // If token expired, refresh it using stored refresh token
-      if (err.response?.status === 401 && user.googleRefreshToken) {
+      const status = err.response?.status;
+
+      // ✅ Refresh on 401 (expired) or 403 (missing scope)
+      if ((status === 401 || status === 403) && user.googleRefreshToken) {
         const newAccessToken = await refreshGoogleAccessToken(user);
         if (!newAccessToken) {
           return res.status(403).json({ error: "Google account needs re-login." });
         }
+
         const photosRes = await axios.get(
           "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
           { headers: { Authorization: `Bearer ${newAccessToken}` } }
         );
         return res.json(photosRes.data);
       }
+
       throw err;
     }
-
   } catch (err) {
     console.error("getGooglePhotos error:", err.response?.data || err.message);
     return res.status(500).json({ error: "Failed to fetch photos" });
   }
 };
+
 
 
 
