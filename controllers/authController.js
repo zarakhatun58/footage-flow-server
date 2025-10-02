@@ -81,9 +81,8 @@ export const refreshGoogleAccessToken = async (user) => {
     const { access_token, scope } = res.data;
     if (!access_token) return null;
 
-    // ✅ Preserve old scopes if Google doesn't send any
+    // Merge old and new scopes
     let newScopes = Array.isArray(user.grantedScopes) ? [...user.grantedScopes] : [];
-
     if (scope) {
       const refreshedScopes = scope.split(" ");
       newScopes = Array.from(new Set([...newScopes, ...refreshedScopes]));
@@ -95,13 +94,11 @@ export const refreshGoogleAccessToken = async (user) => {
 
     return access_token;
   } catch (err) {
-    console.error(
-      "Failed to refresh Google access token:",
-      err.response?.data || err.message
-    );
+    console.error("Failed to refresh Google access token:", err.response?.data || err.message);
     return null;
   }
 };
+
 
 // loginWithGoogle.js
 export const loginWithGoogle = async (req, res) => {
@@ -123,11 +120,9 @@ export const loginWithGoogle = async (req, res) => {
       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
     );
 
-    // ✅ include scope here
     const { id_token, access_token, refresh_token, scope } = tokenRes.data;
     const grantedScopes = scope?.split(" ") || [];
 
-    // Verify ID token
     const ticket = await client.verifyIdToken({
       idToken: id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -137,7 +132,6 @@ export const loginWithGoogle = async (req, res) => {
 
     const { sub: googleId, email, name, picture } = payload;
 
-    // Find or create user
     let user = await reelUser.findOne({ email });
     if (!user) {
       user = await reelUser.create({
@@ -150,15 +144,19 @@ export const loginWithGoogle = async (req, res) => {
       user.googleId = googleId;
     }
 
-    // ✅ Always update tokens + granted scopes
+    // Merge scopes if already exist
+    let newScopes = grantedScopes;
+    if (Array.isArray(user.grantedScopes)) {
+      newScopes = Array.from(new Set([...user.grantedScopes, ...grantedScopes]));
+    }
+
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    if (grantedScopes.length) user.grantedScopes = grantedScopes;
+    user.grantedScopes = newScopes;
 
     await user.save();
 
     const appToken = signToken(user);
-
     return res.json({
       token: appToken,
       user: {
@@ -173,6 +171,7 @@ export const loginWithGoogle = async (req, res) => {
     return res.status(401).json({ error: "Google login failed" });
   }
 };
+
 
 // googleCallback.js
 export const googleCallback = async (req, res) => {
@@ -237,7 +236,6 @@ export const getGooglePhotos = async (req, res) => {
 
     const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
 
-    // Google Photos API call helper
     const fetchPhotos = async (accessToken) => {
       return axios.get("https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20", {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -247,16 +245,12 @@ export const getGooglePhotos = async (req, res) => {
     let token = user.googleAccessToken;
     let hasPhotosScope = Array.isArray(user.grantedScopes) && user.grantedScopes.includes(PHOTOS_SCOPE);
 
-    // ⚡ Ensure token and scope
     if (!token || !hasPhotosScope) {
       if (!user.googleRefreshToken) {
         return res.status(403).json({ error: "No valid tokens. User consent required." });
       }
 
-      // Refresh token
       token = await refreshGoogleAccessToken(user);
-
-      // Double-check scope persistence
       hasPhotosScope = Array.isArray(user.grantedScopes) && user.grantedScopes.includes(PHOTOS_SCOPE);
 
       if (!token || !hasPhotosScope) {
@@ -270,7 +264,6 @@ export const getGooglePhotos = async (req, res) => {
     } catch (err) {
       const status = err.response?.status;
       if (status === 401 || status === 403) {
-        // 🔁 Retry once after refresh
         token = await refreshGoogleAccessToken(user);
         hasPhotosScope = Array.isArray(user.grantedScopes) && user.grantedScopes.includes(PHOTOS_SCOPE);
 
@@ -290,6 +283,7 @@ export const getGooglePhotos = async (req, res) => {
     return res.status(500).json({ error: err.message || "Failed to fetch photos" });
   }
 };
+
 
 
 
