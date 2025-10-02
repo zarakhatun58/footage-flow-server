@@ -2,7 +2,7 @@ import express from 'express';
 import {
     register, login, getProfile, logout, forgotPassword,
     resetPassword, loginWithGoogle, getGooglePhotos, requestPhotosScope,
-    googleCallback, photosCallback
+    googleCallback, photosCallback, googleTokenInfo
 } from '../controllers/authController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -20,7 +20,7 @@ router.get('/google-photos', protect, getGooglePhotos);
 router.get("/google/callback", googleCallback);
 router.get("/google-photos-scope", requestPhotosScope);
 router.get("/photos-callback", photosCallback);
-
+router.get("/google-token-info", protect, googleTokenInfo);
 
 
 

@@ -99,6 +99,38 @@ export const refreshGoogleAccessToken = async (user) => {
   }
 };
 
+const getTokenInfo = async (accessToken) => {
+  if (!accessToken) return null;
+  try {
+    const infoRes = await axios.get(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(accessToken)}`
+    );
+    return infoRes.data; // contains 'scope' (space-separated string) when valid
+  } catch (err) {
+    // token invalid/expired or Google returned error
+    return null;
+  }
+};
+/**
+ * GET /api/auth/google-token-info
+ * Debug endpoint — returns tokeninfo and DB scopes for the current user.
+ */
+export const googleTokenInfo = async (req, res) => {
+  try {
+    const user = await reelUser.findById(req.userId);
+    if (!user) return res.status(401).json({ error: "User not found" });
+
+    const tokenInfo = await getTokenInfo(user.googleAccessToken);
+    return res.json({
+      dbScopes: user.grantedScopes || [],
+      tokenScopes: tokenInfo?.scope || null,
+      tokenInfo,
+    });
+  } catch (err) {
+    console.error("googleTokenInfo error:", err);
+    return res.status(500).json({ error: "Failed to fetch token info" });
+  }
+};
 
 // loginWithGoogle.js
 export const loginWithGoogle = async (req, res) => {
@@ -235,21 +267,49 @@ export const getGooglePhotos = async (req, res) => {
 
     const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
 
-    if (!user.googleAccessToken || !user.grantedScopes.includes(PHOTOS_SCOPE)) {
-      return res.status(403).json({ error: "Photos scope missing. User must grant access." });
+    // 1) quick DB check
+    const dbHasPhotos = Array.isArray(user.grantedScopes) && user.grantedScopes.includes(PHOTOS_SCOPE);
+
+    // 2) check actual access token scopes via tokeninfo
+    let token = user.googleAccessToken;
+    let tokenInfo = await getTokenInfo(token);
+    let tokenHasPhotos = Boolean(tokenInfo && tokenInfo.scope && tokenInfo.scope.includes("photoslibrary.readonly"));
+
+    // 3) if token missing or doesn't have photos scope, try refresh (if possible) and re-check
+    if (!tokenHasPhotos) {
+      if (user.googleRefreshToken) {
+        // attempt refresh
+        const newToken = await refreshGoogleAccessToken(user);
+        token = newToken || token; // use newToken if returned
+        tokenInfo = await getTokenInfo(token);
+        tokenHasPhotos = Boolean(tokenInfo && tokenInfo.scope && tokenInfo.scope.includes("photoslibrary.readonly"));
+      }
     }
 
+    // 4) If still missing photos scope, return structured 403 so frontend can route to grant flow
+    if (!tokenHasPhotos) {
+      console.warn("Photos scope missing — DB scopes:", user.grantedScopes, "token scopes:", tokenInfo?.scope);
+      return res.status(403).json({
+        error: "Photos scope missing. User must grant Google Photos access.",
+        needsPhotosScope: true,
+        dbScopes: user.grantedScopes || [],
+        tokenScopes: tokenInfo?.scope || null,
+      });
+    }
+
+    // 5) tokenHasPhotos true => call Google Photos
     const photosRes = await axios.get(
       "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
-      { headers: { Authorization: `Bearer ${user.googleAccessToken}` } }
+      { headers: { Authorization: `Bearer ${token}` } }
     );
 
     return res.json(photosRes.data);
   } catch (err) {
+    // if Google returned 403/401 we surface clear structured errors
     console.error("getGooglePhotos error:", err.response?.data || err.message);
-    return res.status(err.response?.status || 500).json({
-      error: err.response?.data?.error?.message || "Failed to fetch photos",
-    });
+    const status = err.response?.status || 500;
+    const message = err.response?.data?.error?.message || err.message || "Failed to fetch photos";
+    return res.status(status).json({ error: message, details: err.response?.data || null });
   }
 };
 
