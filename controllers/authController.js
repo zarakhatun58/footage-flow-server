@@ -10,7 +10,7 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Helper: sign JWT with consistent payload
 const signToken = (user) => {
-   console.log("[signToken] Signing JWT for user:", user._id);
+  console.log("[signToken] Signing JWT for user:", user._id);
   return jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
 };
 
@@ -73,7 +73,9 @@ export const refreshGoogleAccessToken = async (user) => {
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
       refresh_token: user.googleRefreshToken,
       grant_type: "refresh_token",
+      scope: "https://www.googleapis.com/auth/photoslibrary.readonly"
     });
+
 
     const res = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -279,13 +281,12 @@ export const requestPhotosScope = async (req, res) => {
     }
 
     // Otherwise, generate Google OAuth URL to request Photos scope
-    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${
-      process.env.GOOGLE_CLIENT_ID
-    }&redirect_uri=${encodeURIComponent(
-      process.env.GOOGLE_REDIRECT_URI + "/photos-callback"
-    )}&response_type=code&scope=${encodeURIComponent(
-      PHOTOS_SCOPE
-    )}&access_type=offline&prompt=consent&state=${user._id}`;
+    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID
+      }&redirect_uri=${encodeURIComponent(
+        process.env.GOOGLE_REDIRECT_URI + "/photos-callback"
+      )}&response_type=code&scope=${encodeURIComponent(
+        PHOTOS_SCOPE
+      )}&access_type=offline&prompt=consent&state=${user._id}`;
 
     console.log("[requestPhotosScope] Redirect URL:", oauthUrl);
 
