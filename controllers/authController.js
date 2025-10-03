@@ -262,17 +262,14 @@ export const googleCallback = async (req, res) => {
 };
 
 
-// Request photos scope
+// Request Photos scope
 export const requestPhotosScope = async (req, res) => {
   try {
-    console.log("[requestPhotosScope] userId:", req.userId);
-
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
 
-    // If user already has Photos scope, just return info
     if (user.grantedScopes?.includes(PHOTOS_SCOPE)) {
       return res.json({
         grantedScopes: user.grantedScopes,
@@ -280,59 +277,53 @@ export const requestPhotosScope = async (req, res) => {
       });
     }
 
-    // Otherwise, generate Google OAuth URL to request Photos scope
-    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID
-      }&redirect_uri=${encodeURIComponent(
-        process.env.GOOGLE_REDIRECT_URI + "/photos-callback"
-      )}&response_type=code&scope=${encodeURIComponent(
-        PHOTOS_SCOPE
-      )}&access_type=offline&prompt=consent&state=${user._id}`;
-
-    console.log("[requestPhotosScope] Redirect URL:", oauthUrl);
+    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(
+      process.env.GOOGLE_REDIRECT_URI + "/photos-callback"
+    )}&response_type=code&scope=${encodeURIComponent(
+      PHOTOS_SCOPE
+    )}&access_type=offline&prompt=consent&state=${user._id}`;
 
     res.json({
       grantedScopes: user.grantedScopes || [],
       hasPhotosScope: false,
-      url: oauthUrl, // frontend should redirect user here
+      url: oauthUrl,
     });
   } catch (err) {
-    console.error("[requestPhotosScope] Error:", err.message);
     res.status(500).json({ error: "Failed to build Google Photos scope URL" });
   }
 };
 
-// Get Google Photos
 // Get Google Photos
 export const getGooglePhotos = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    console.log("[getGooglePhotos] userId:", req.userId);
-
-    // Check if user has granted Photos scope
     const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
+
     if (!user.grantedScopes?.includes(PHOTOS_SCOPE)) {
-      return res.status(403).json({
-        error: "User access token does not have Google Photos scope. Please grant access via requestPhotosScope."
+      return res.status(403).json({ 
+        error: "Insufficient scopes", 
+        needsScope: true,
+        url: `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(
+          process.env.GOOGLE_REDIRECT_URI + "/photos-callback"
+        )}&response_type=code&scope=${encodeURIComponent(PHOTOS_SCOPE)}&access_type=offline&prompt=consent&state=${user._id}`
       });
     }
-
-    console.log("[getGooglePhotos] Requesting Google Photos API...");
 
     const photosRes = await axios.get(
       "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
       { headers: { Authorization: `Bearer ${user.googleAccessToken}` } }
     );
 
-    res.json(photosRes.data);
+    return res.json(photosRes.data);
   } catch (err) {
-    console.error("[getGooglePhotos] Error:", err.response?.data || err.message);
     res.status(err.response?.status || 500).json({
       error: err.response?.data?.error?.message || "Failed to fetch photos",
     });
   }
 };
+
 
 
 // Photos callback
@@ -341,7 +332,6 @@ export const photosCallback = async (req, res) => {
   if (!code || !userId) return res.status(400).send("Missing code or user ID");
 
   try {
-    console.log("[photosCallback] Received code:", code, "for userId:", userId);
     const user = await reelUser.findById(userId);
     if (!user) return res.status(401).json({ error: "User not found" });
 
@@ -358,22 +348,20 @@ export const photosCallback = async (req, res) => {
     });
 
     const { access_token, refresh_token, scope } = tokenRes.data;
-    console.log("[photosCallback] Token response:", tokenRes.data);
 
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
     user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), ...(scope?.split(" ") || [])]));
 
     await user.save();
-    console.log("[photosCallback] User updated with new Google Photos token.");
 
     const appToken = signToken(user);
     res.redirect(`${process.env.FRONTEND_URL}/gallery?token=${appToken}`);
   } catch (err) {
-    console.error("[photosCallback] Error:", err.response?.data || err.message);
     res.status(500).send("Failed to grant Google Photos access");
   }
 };
+
 
 
 
