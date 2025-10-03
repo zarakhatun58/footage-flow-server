@@ -72,16 +72,13 @@ export const refreshGoogleAccessToken = async (user) => {
       grant_type: "refresh_token",
     });
 
-    const res = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      body.toString(),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
+    const res = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
 
     const { access_token, scope } = res.data;
     if (!access_token) return null;
 
-    // Merge old and new scopes
     let newScopes = Array.isArray(user.grantedScopes) ? [...user.grantedScopes] : [];
     if (scope) {
       const refreshedScopes = scope.split(" ");
@@ -105,30 +102,25 @@ const getTokenInfo = async (accessToken) => {
     const infoRes = await axios.get(
       `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(accessToken)}`
     );
-    return infoRes.data; // contains 'scope' (space-separated string) when valid
-  } catch (err) {
-    // token invalid/expired or Google returned error
+    return infoRes.data;
+  } catch {
     return null;
   }
 };
-/**
- * GET /api/auth/google-token-info
- * Debug endpoint — returns tokeninfo and DB scopes for the current user.
- */
+
 export const googleTokenInfo = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(401).json({ error: "User not found" });
 
     const tokenInfo = await getTokenInfo(user.googleAccessToken);
-    return res.json({
+    res.json({
       dbScopes: user.grantedScopes || [],
       tokenScopes: tokenInfo?.scope || null,
       tokenInfo,
     });
   } catch (err) {
-    console.error("googleTokenInfo error:", err);
-    return res.status(500).json({ error: "Failed to fetch token info" });
+    res.status(500).json({ error: "Failed to fetch token info" });
   }
 };
 
@@ -146,11 +138,9 @@ export const loginWithGoogle = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      body.toString(),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
+    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
 
     const { id_token, access_token, refresh_token, scope } = tokenRes.data;
     const grantedScopes = scope?.split(" ") || [];
@@ -160,47 +150,30 @@ export const loginWithGoogle = async (req, res) => {
       audience: process.env.GOOGLE_CLIENT_ID,
     });
     const payload = ticket.getPayload();
-    if (!payload) return res.status(400).json({ error: "Invalid Google token" });
-
     const { sub: googleId, email, name, picture } = payload;
 
     let user = await reelUser.findOne({ email });
     if (!user) {
-      user = await reelUser.create({
-        googleId,
-        email,
-        username: name,
-        profilePic: picture,
-      });
+      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
     } else if (!user.googleId) {
       user.googleId = googleId;
     }
 
-    // Merge scopes if already exist
-    let newScopes = grantedScopes;
-    if (Array.isArray(user.grantedScopes)) {
-      newScopes = Array.from(new Set([...user.grantedScopes, ...grantedScopes]));
-    }
-
+    const mergedScopes = Array.from(new Set([...(user.grantedScopes || []), ...grantedScopes]));
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = newScopes;
+    user.grantedScopes = mergedScopes;
 
     await user.save();
 
     const appToken = signToken(user);
-    return res.json({
+    res.json({
       token: appToken,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        profilePic: user.profilePic,
-      },
+      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
     });
   } catch (err) {
     console.error("Google login error:", err.response?.data || err.message);
-    return res.status(401).json({ error: "Google login failed" });
+    res.status(401).json({ error: "Google login failed" });
   }
 };
 
@@ -218,11 +191,9 @@ export const googleCallback = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      body.toString(),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
+    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
 
     const { id_token, access_token, refresh_token, scope } = tokenRes.data;
     const grantedScopes = scope?.split(" ") || [];
@@ -241,18 +212,15 @@ export const googleCallback = async (req, res) => {
       user.googleId = googleId;
     }
 
-    // Update tokens and granted scopes
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = grantedScopes;
+    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), ...grantedScopes]));
 
     await user.save();
 
     const appToken = signToken(user);
-    const FRONTEND_URL = process.env.FRONTEND_URL;
-
     res.redirect(
-      `${FRONTEND_URL}/auth/callback?token=${appToken}&email=${email}&username=${name}&profilePic=${picture}`
+      `${process.env.FRONTEND_URL}/auth/callback?token=${appToken}&email=${email}&username=${name}&profilePic=${picture}`
     );
   } catch (err) {
     console.error("Google callback error:", err.response?.data || err.message);
@@ -272,11 +240,10 @@ export const getGooglePhotos = async (req, res) => {
     }
 
     try {
-      const photosRes = await axios.get(
-        "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
-        { headers: { Authorization: `Bearer ${user.googleAccessToken}` } }
-      );
-      return res.json(photosRes.data);
+      const photosRes = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20", {
+        headers: { Authorization: `Bearer ${user.googleAccessToken}` },
+      });
+      res.json(photosRes.data);
     } catch (err) {
       if ([401, 403].includes(err.response?.status)) {
         return res.status(403).json({ error: "Access token invalid or missing scopes." });
@@ -285,7 +252,7 @@ export const getGooglePhotos = async (req, res) => {
     }
   } catch (err) {
     console.error("getGooglePhotos error:", err.response?.data || err.message);
-    return res.status(err.response?.status || 500).json({
+    res.status(err.response?.status || 500).json({
       error: err.response?.data?.error?.message || "Failed to fetch photos",
     });
   }
@@ -330,36 +297,26 @@ export const photosCallback = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      body.toString(),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
+    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
 
     const { access_token, refresh_token, scope } = tokenRes.data;
     const newScopes = scope?.split(" ") || [];
 
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = Array.from(
-      new Set([...(user.grantedScopes || []), ...newScopes])
-    );
+    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), ...newScopes]));
 
     await user.save();
 
-    // ✅ Sign a new app token with updated scopes
     const appToken = signToken(user);
-
-    // Redirect with token (frontend will catch it in AuthContext)
-    res.redirect(
-      `${process.env.FRONTEND_URL}/gallery?token=${appToken}`
-    );
+    res.redirect(`${process.env.FRONTEND_URL}/gallery?token=${appToken}`);
   } catch (err) {
     console.error("Photos callback error:", err.response?.data || err.message);
     res.status(500).send("Failed to grant Google Photos access");
   }
 };
-
 
 
 
