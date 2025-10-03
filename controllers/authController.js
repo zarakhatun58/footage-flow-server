@@ -302,41 +302,30 @@ export const requestPhotosScope = async (req, res) => {
 };
 
 // Get Google Photos
+// Get Google Photos
 export const getGooglePhotos = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     console.log("[getGooglePhotos] userId:", req.userId);
+
+    // Check if user has granted Photos scope
+    const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
+    if (!user.grantedScopes?.includes(PHOTOS_SCOPE)) {
+      return res.status(403).json({
+        error: "User access token does not have Google Photos scope. Please grant access via requestPhotosScope."
+      });
+    }
+
     console.log("[getGooglePhotos] Requesting Google Photos API...");
 
-    // Function to call Photos API with a given token
-    const fetchPhotos = async (accessToken) => {
-      return axios.get("https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-    };
+    const photosRes = await axios.get(
+      "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
+      { headers: { Authorization: `Bearer ${user.googleAccessToken}` } }
+    );
 
-    try {
-      // First attempt with saved access token
-      const photosRes = await fetchPhotos(user.googleAccessToken);
-      return res.json(photosRes.data);
-    } catch (err) {
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        console.log("[getGooglePhotos] Access denied, refreshing token...");
-
-        const newAccessToken = await refreshGoogleAccessToken(user);
-        if (!newAccessToken) {
-          return res.status(401).json({ error: "Failed to refresh Google token" });
-        }
-
-        // Retry with refreshed token
-        const retryRes = await fetchPhotos(newAccessToken);
-        return res.json(retryRes.data);
-      }
-
-      throw err;
-    }
+    res.json(photosRes.data);
   } catch (err) {
     console.error("[getGooglePhotos] Error:", err.response?.data || err.message);
     res.status(err.response?.status || 500).json({
@@ -344,6 +333,7 @@ export const getGooglePhotos = async (req, res) => {
     });
   }
 };
+
 
 // Photos callback
 export const photosCallback = async (req, res) => {
