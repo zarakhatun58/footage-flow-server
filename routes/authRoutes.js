@@ -17,9 +17,9 @@ router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 router.get('/google-photos', protect, getGooglePhotos);
 // GET /api/auth/google/callback
-router.get("/google/callback", googleCallback);
+router.get("/google/callback",protect, googleCallback);
 router.get("/google-photos-scope",protect, requestPhotosScope);
-router.get("/photos-callback", photosCallback);
+router.get("/photos-callback",protect, photosCallback);
 router.get("/google-token-info", protect, googleTokenInfo);
 
 
