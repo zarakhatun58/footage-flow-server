@@ -15,52 +15,6 @@ const signToken = (user) => {
 };
 
 
-export const register = async (req, res) => {
-  try {
-    let { username, email, password } = req.body;
-
-    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-
-    const existing = await reelUser.findOne({ email });
-    if (existing) return res.status(400).json({ error: 'Email already exists' });
-
-    if (!username || username.trim() === '') {
-      username = email.split('@')[0] + Math.floor(Math.random() * 1000);
-    }
-
-    const hashed = await bcrypt.hash(password, 10);
-
-    const user = await reelUser.create({ username, email, password: hashed });
-
-    const token = signToken(user);
-
-    res.status(201).json({
-      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic || null },
-      token,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Registration failed' });
-  }
-};
-
-export const login = async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const user = await reelUser.findOne({ email });
-    if (!user || !user.password) return res.status(400).json({ error: 'Invalid credentials' });
-
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(400).json({ error: 'Invalid credentials' });
-
-    const token = signToken(user);
-
-    res.json({ token, user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic || null } });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Login failed' });
-  }
-};
 
 
 // Refresh Google access token
@@ -424,6 +378,54 @@ export const photosCallback = async (req, res) => {
 
 
 
+export const register = async (req, res) => {
+  try {
+    let { username, email, password } = req.body;
+
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+    const existing = await reelUser.findOne({ email });
+    if (existing) return res.status(400).json({ error: 'Email already exists' });
+
+    if (!username || username.trim() === '') {
+      username = email.split('@')[0] + Math.floor(Math.random() * 1000);
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    const user = await reelUser.create({ username, email, password: hashed });
+
+    const token = signToken(user);
+
+    res.status(201).json({
+      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic || null },
+      token,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+};
+
+export const login = async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await reelUser.findOne({ email });
+    if (!user || !user.password) return res.status(400).json({ error: 'Invalid credentials' });
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(400).json({ error: 'Invalid credentials' });
+
+    const token = signToken(user);
+
+    res.json({ token, user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic || null } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Login failed' });
+  }
+};
+
+
 
 export const getProfile = async (req, res) => {
   try {
@@ -445,40 +447,38 @@ export const getProfile = async (req, res) => {
   }
 };
 
-// export const loginWithGoogle = async (req, res) => {
-//   const { idToken, accessToken } = req.body;  
+export const loginGoogle = async (req, res) => {
+  const { idToken, accessToken } = req.body;  
 
-//   try {
-//     const ticket = await client.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
-//     const payload = ticket.getPayload();
-//     if (!payload) return res.status(400).json({ error: 'Invalid Google token' });
+  try {
+    const ticket = await client.verifyIdToken({ idToken, audience: process.env.GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    if (!payload) return res.status(400).json({ error: 'Invalid Google token' });
 
-//     const { sub: googleId, email, name, picture } = payload;
+    const { sub: googleId, email, name, picture } = payload;
 
-//     let user = await reelUser.findOne({ email });
-//     if (!user) {
-//       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
-//     }
+    let user = await reelUser.findOne({ email });
+    if (!user) {
+      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+    }
 
-//     // ⬇️ CHANGE 3: store accessToken for Google Photos API
-//     if (accessToken) {
-//       user.googleAccessToken = accessToken;
-//       await user.save();
-//     }
+    // ⬇️ CHANGE 3: store accessToken for Google Photos API
+    if (accessToken) {
+      user.googleAccessToken = accessToken;
+      await user.save();
+    }
 
-//     const appToken = signToken(user);
+    const appToken = signToken(user);
 
-//     res.json({
-//       token: appToken,
-//       user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
-//     });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(401).json({ error: 'Google login failed' });
-//   }
-// };
-
-
+    res.json({
+      token: appToken,
+      user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(401).json({ error: 'Google login failed' });
+  }
+};
 
 
 export const logout = (req, res) => {
