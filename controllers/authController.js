@@ -6,7 +6,11 @@ import { OAuth2Client } from 'google-auth-library';
 import axios from 'axios';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const client = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
 
 // Helper: sign JWT with consistent payload
 const signToken = (user) => {
