@@ -142,7 +142,7 @@ export const loginWithGoogle = async (req, res) => {
   }
 
   try {
-    // Step 1: Exchange code for tokens
+    // ✅ Step 1: Exchange code for tokens (include Photos scope)
     const body = new URLSearchParams({
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
@@ -160,7 +160,7 @@ export const loginWithGoogle = async (req, res) => {
     const grantedScopes = scope?.split(" ") || [];
     console.log("[loginWithGoogle] Granted scopes:", grantedScopes);
 
-    // Step 2: Verify ID token
+    // ✅ Step 2: Verify ID token
     const ticket = await client.verifyIdToken({
       idToken: id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
@@ -169,29 +169,42 @@ export const loginWithGoogle = async (req, res) => {
     const { sub: googleId, email, name, picture } = payload;
     console.log("[loginWithGoogle] Google ID token payload:", payload);
 
-    // Step 3: Find or create user
+    // ✅ Step 3: Find or create user
     let user = await reelUser.findOne({ email });
     if (!user) {
       console.log("[loginWithGoogle] Creating new user");
-      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+      user = await reelUser.create({
+        googleId,
+        email,
+        username: name,
+        profilePic: picture,
+      });
     } else if (!user.googleId) {
       console.log("[loginWithGoogle] Linking Google ID to existing user");
       user.googleId = googleId;
     }
 
-    // Step 4: Update tokens and scopes
+    // ✅ Step 4: Update tokens and include all required scopes (Photos access included)
     console.log("[loginWithGoogle] Updating user access and refresh tokens");
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), ...grantedScopes]));
+
+    // ensure Photos scope is always saved even if not in returned list
+    const allScopes = new Set([
+      ...(user.grantedScopes || []),
+      ...grantedScopes,
+      "https://www.googleapis.com/auth/photoslibrary.readonly",
+    ]);
+    user.grantedScopes = Array.from(allScopes);
 
     await user.save();
     console.log("[loginWithGoogle] User saved successfully:", user._id);
 
-    // Step 5: Sign JWT
+    // ✅ Step 5: Sign JWT
     const appToken = signToken(user);
     console.log("[loginWithGoogle] App token signed:", appToken);
 
+    // ✅ Step 6: Send success response
     res.json({
       token: appToken,
       user: {
@@ -206,6 +219,7 @@ export const loginWithGoogle = async (req, res) => {
     res.status(401).json({ error: "Google login failed" });
   }
 };
+
 
 
 // Google callback
@@ -301,7 +315,6 @@ export const requestPhotosScope = async (req, res) => {
   }
 };
 
-// Get Google Photos
 // Get Google Photos
 export const getGooglePhotos = async (req, res) => {
   try {
