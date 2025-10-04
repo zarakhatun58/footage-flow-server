@@ -289,6 +289,7 @@ export const requestPhotosScope = async (req, res) => {
 };
 
 // Get Google Photos
+// Get Google Photos
 export const getGooglePhotos = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId);
@@ -303,46 +304,29 @@ export const getGooglePhotos = async (req, res) => {
       return res.status(403).json({
         error: "Google Photos access required. Please grant permission again.",
         needsScope: true,
-        url: `/api/auth/google-photos-scope` // frontend can redirect user
+        url: `/api/auth/google-photos-scope`, // frontend can redirect user
       });
     }
 
-    let accessToken = user.googleAccessToken;
+    // Step 2: Refresh access token if needed
+    let accessToken = await refreshGoogleAccessToken(user) || user.googleAccessToken;
+    if (!accessToken) {
+      return res.status(403).json({ error: "Session expired. Please log in again." });
+    }
 
-    const fetchFromGoogle = async (token) => {
+    // Step 3: Fetch photos from Google
+    try {
       const photosRes = await axios.get(
         "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${accessToken}` } }
       );
-      return photosRes.data;
-    };
-
-    try {
-      // Step 2: Try fetching with current token
-      const data = await fetchFromGoogle(accessToken);
-      return res.json(data);
+      return res.json(photosRes.data);
     } catch (err) {
-      const status = err.response?.status;
-      const errorMessage = err.response?.data?.error?.message;
-
-      // Step 3: If token expired or insufficient, refresh token
-      if ((status === 401 || (status === 403 && errorMessage?.includes("insufficient"))) && user.googleRefreshToken) {
-        const newAccessToken = await refreshGoogleAccessToken(user);
-        if (!newAccessToken) {
-          return res.status(403).json({ error: "Session expired. Please log in again." });
-        }
-
-        // Retry request with new token
-        const data = await fetchFromGoogle(newAccessToken);
-        return res.json(data);
-      }
-
-      // Step 4: Other errors
       console.error("getGooglePhotos API error:", err.response?.data || err.message);
       return res.status(500).json({ error: "Failed to fetch Google Photos" });
     }
   } catch (err) {
-    console.error("getGooglePhotos fatal error:", err.message);
+    console.error("getGooglePhotos fatal error:", err.message || err);
     return res.status(500).json({ error: "Server error fetching Google Photos" });
   }
 };
@@ -357,6 +341,7 @@ export const photosCallback = async (req, res) => {
     const user = await reelUser.findById(userId);
     if (!user) return res.status(401).json({ error: "User not found" });
 
+    // Step 1: Exchange code for access and refresh tokens
     const body = new URLSearchParams({
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
@@ -365,27 +350,38 @@ export const photosCallback = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    const tokenRes = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      body.toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
 
     const { access_token, refresh_token, scope } = tokenRes.data;
 
+    // Step 2: Save tokens and scopes
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), ...(scope?.split(" ") || [])]));
+    user.grantedScopes = Array.from(
+      new Set([...(user.grantedScopes || []), ...(scope?.split(" ") || [])])
+    );
 
     await user.save();
 
+    // Step 3: Ensure access token is valid (refresh if needed)
+    const validAccessToken = await refreshGoogleAccessToken(user) || user.googleAccessToken;
+
+    if (!validAccessToken) {
+      return res.status(403).send("Session expired. Please log in again.");
+    }
+
+    // Step 4: Sign JWT and redirect frontend
     const appToken = signToken(user);
     res.redirect(`${process.env.FRONTEND_URL}/gallery?token=${appToken}`);
   } catch (err) {
+    console.error("photosCallback error:", err.response?.data || err.message);
     res.status(500).send("Failed to grant Google Photos access");
   }
 };
-
-
-
 
 
 
