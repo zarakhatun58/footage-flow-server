@@ -223,15 +223,21 @@ export const googleCallback = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
-    console.log("[googleCallback] Token response:", tokenRes.data);
+    const tokenRes = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      body.toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
 
     const { id_token, access_token, refresh_token, scope } = tokenRes.data;
     const grantedScopes = scope?.split(" ") || [];
+    console.log("[googleCallback] Token response:", tokenRes.data);
 
-    const ticket = await client.verifyIdToken({ idToken: id_token, audience: process.env.GOOGLE_CLIENT_ID });
+    const ticket = await client.verifyIdToken({
+      idToken: id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
     const payload = ticket.getPayload();
     const { email, name, picture, sub: googleId } = payload;
     console.log("[googleCallback] Payload:", payload);
@@ -253,10 +259,13 @@ export const googleCallback = async (req, res) => {
     console.log("[googleCallback] User saved:", user._id);
 
     const appToken = signToken(user);
-    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${appToken}&email=${email}&username=${name}&profilePic=${picture}`);
+    // Redirect to frontend with token
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/auth/callback?token=${appToken}&email=${encodeURIComponent(email)}&username=${encodeURIComponent(name)}&profilePic=${encodeURIComponent(picture)}`
+    );
   } catch (err) {
     console.error("[googleCallback] Error:", err.response?.data || err.message);
-    res.status(500).send("Google callback failed");
+    return res.status(500).send("Google callback failed");
   }
 };
 
@@ -362,10 +371,6 @@ export const getGooglePhotos = async (req, res) => {
     return res.status(500).json({ error: "Server error fetching Google Photos" });
   }
 };
-
-
-
-
 
 // Photos callback
 export const photosCallback = async (req, res) => {
