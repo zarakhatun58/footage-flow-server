@@ -329,7 +329,7 @@ export const getGooglePhotos = async (req, res) => {
       return res.status(403).json({
         error: "Google Photos access required. Please grant permission.",
         needsScope: true,
-        url: `${process.env.FRONTEND_URL}/api/auth/google-photos-scope`,
+        
       });
     }
 
@@ -354,7 +354,6 @@ export const getGooglePhotos = async (req, res) => {
         return res.status(403).json({
           error: "Google Photos access required. Please grant permission again.",
           needsScope: true,
-          url: `${process.env.FRONTEND_URL}/api/auth/google-photos-scope`,
         });
       }
 
