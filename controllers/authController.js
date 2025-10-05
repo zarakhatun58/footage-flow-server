@@ -303,53 +303,55 @@ export const requestPhotosScope = async (req, res) => {
 
 // Get Google Photos
 export const getGooglePhotos = async (req, res) => {
+  console.log("[getGooglePhotos] Starting...");
+
   try {
-    const userId = req.user.id;
-    console.log("[getGooglePhotos] Requested by user:", userId);
+    const userId = req.userId; 
+    if (!userId) {
+      console.log("[getGooglePhotos] Missing userId from request");
+      return res.status(401).json({ error: "Unauthorized - user not found" });
+    }
 
     const user = await reelUser.findById(userId);
-    if (!user || !user.googleAccessToken) {
-      console.error("[getGooglePhotos] Missing access token in DB");
-      return res.status(401).json({ error: "Google account not linked." });
+    if (!user) {
+      console.log("[getGooglePhotos] User not found in DB:", userId);
+      return res.status(404).json({ error: "User not found" });
     }
 
+    console.log("[getGooglePhotos] Found user:", user.email);
+
+    // ✅ Ensure user has a valid token
     const accessToken = user.googleAccessToken;
-    console.log("[getGooglePhotos] Access token starts with:", accessToken.slice(0, 25));
-
-    // ✅ Step 1: Verify scopes attached to token
-    try {
-      const verify = await axios.get(
-        `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${accessToken}`
-      );
-      console.log("[getGooglePhotos] Token scopes:", verify.data.scope);
-    } catch (verifyErr) {
-      console.warn("[getGooglePhotos] Could not verify token:", verifyErr.response?.data || verifyErr.message);
+    if (!accessToken) {
+      console.log("[getGooglePhotos] No Google access token for user");
+      return res.status(401).json({
+        error: "Google account not linked",
+        needsScope: true,
+      });
     }
 
-    // ✅ Step 2: Call Google Photos API
-    const response = await axios.get(
-      "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=30",
+    // ✅ Fetch Google Photos
+    const photosRes = await axios.get(
+      "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=25",
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
     );
 
-    console.log("[getGooglePhotos] Fetched items:", response.data.mediaItems?.length || 0);
+    console.log(
+      `[getGooglePhotos] Photos fetched: ${photosRes.data?.mediaItems?.length || 0}`
+    );
 
-    return res.json({
-      success: true,
-      mediaItems: response.data.mediaItems || [],
-    });
+    res.json(photosRes.data);
   } catch (err) {
-    console.error("[getGooglePhotos fatal error]:", err.response?.data || err.message);
-
-    // ✅ Step 3: Return readable error to frontend
-    return res.status(500).json({
+    console.error("[getGooglePhotos fatal error]:", err.message);
+    res.status(500).json({
       error: "Server error fetching Google Photos",
-      googleError: err.response?.data || err.message,
+      googleError: err.message,
     });
   }
 };
+
 
 
 
