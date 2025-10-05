@@ -113,6 +113,8 @@ export const googleTokenInfo = async (req, res) => {
 
 export const loginWithGoogle = async (req, res) => {
   console.log("[loginWithGoogle] Request received.");
+console.log("Google Client ID:", process.env.GOOGLE_CLIENT_ID);
+console.log("Google Redirect URI:", process.env.GOOGLE_REDIRECT_URI);
 
   const { code } = req.body;
   if (!code) {
