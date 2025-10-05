@@ -113,8 +113,6 @@ export const googleTokenInfo = async (req, res) => {
 
 export const loginWithGoogle = async (req, res) => {
   console.log("[loginWithGoogle] Request received.");
-console.log("Google Client ID:", process.env.GOOGLE_CLIENT_ID);
-console.log("Google Redirect URI:", process.env.GOOGLE_REDIRECT_URI);
 
   const { code } = req.body;
   if (!code) {
@@ -224,9 +222,9 @@ export const googleCallback = async (req, res) => {
     // Exchange code for Google tokens
     const body = new URLSearchParams({
       code,
-      client_id: GOOGLE_CLIENT_ID,
-      client_secret: GOOGLE_CLIENT_SECRET,
-      redirect_uri: REDIRECT_URI,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
       grant_type: "authorization_code",
     });
 
