@@ -4,6 +4,8 @@ import reelUser from '../models/User.js';
 import { sendEmail } from '../utils/sendEmail.js';
 import { OAuth2Client } from 'google-auth-library';
 import axios from 'axios';
+import dotenv from "dotenv";
+dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const client = new OAuth2Client(
