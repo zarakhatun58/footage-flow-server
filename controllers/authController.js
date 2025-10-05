@@ -110,15 +110,16 @@ export const googleTokenInfo = async (req, res) => {
 };
 
 export const loginWithGoogle = async (req, res) => {
-  console.log("[loginWithGoogle] Request body:", req.body);
+  console.log("[loginWithGoogle] Request received.");
+
   const { code } = req.body;
   if (!code) {
-    console.log("[loginWithGoogle] No authorization code provided");
+    console.log("[loginWithGoogle] ❌ Missing authorization code.");
     return res.status(400).json({ error: "Authorization code required" });
   }
 
   try {
-    // ✅ Step 1: Exchange code for tokens (include Photos scope)
+    // ✅ Step 1: Exchange authorization code for tokens
     const body = new URLSearchParams({
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
@@ -130,25 +131,25 @@ export const loginWithGoogle = async (req, res) => {
     const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
-    console.log("[loginWithGoogle] Token response:", tokenRes.data);
 
     const { id_token, access_token, refresh_token, scope } = tokenRes.data;
     const grantedScopes = scope?.split(" ") || [];
-    console.log("[loginWithGoogle] Granted scopes:", grantedScopes);
+    console.log("[loginWithGoogle] ✅ Token exchange successful.");
 
-    // ✅ Step 2: Verify ID token
+    // ✅ Step 2: Verify the ID token
     const ticket = await client.verifyIdToken({
       idToken: id_token,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
+
     const payload = ticket.getPayload();
     const { sub: googleId, email, name, picture } = payload;
-    console.log("[loginWithGoogle] Google ID token payload:", payload);
+    console.log("[loginWithGoogle] Verified Google user:", email);
 
     // ✅ Step 3: Find or create user
     let user = await reelUser.findOne({ email });
     if (!user) {
-      console.log("[loginWithGoogle] Creating new user");
+      console.log("[loginWithGoogle] Creating new user record...");
       user = await reelUser.create({
         googleId,
         email,
@@ -156,16 +157,17 @@ export const loginWithGoogle = async (req, res) => {
         profilePic: picture,
       });
     } else if (!user.googleId) {
-      console.log("[loginWithGoogle] Linking Google ID to existing user");
+      console.log("[loginWithGoogle] Linking Google account to existing user...");
       user.googleId = googleId;
     }
 
-    // ✅ Step 4: Update tokens and include all required scopes (Photos access included)
-    console.log("[loginWithGoogle] Updating user access and refresh tokens");
+    // ✅ Step 4: Update tokens and granted scopes
+    console.log("[loginWithGoogle] Updating user tokens and scopes...");
     user.googleAccessToken = access_token;
-    if (refresh_token) user.googleRefreshToken = refresh_token;
+    if (refresh_token) {
+      user.googleRefreshToken = refresh_token;
+    }
 
-    // ensure Photos scope is always saved even if not in returned list
     const allScopes = new Set([
       ...(user.grantedScopes || []),
       ...grantedScopes,
@@ -174,14 +176,14 @@ export const loginWithGoogle = async (req, res) => {
     user.grantedScopes = Array.from(allScopes);
 
     await user.save();
-    console.log("[loginWithGoogle] User saved successfully:", user._id);
+    console.log("[loginWithGoogle] ✅ User saved successfully:", user._id);
 
-    // ✅ Step 5: Sign JWT
+    // ✅ Step 5: Sign JWT for app authentication
     const appToken = signToken(user);
-    console.log("[loginWithGoogle] App token signed:", appToken);
+    console.log("[loginWithGoogle] JWT signed successfully.");
 
-    // ✅ Step 6: Send success response
-    res.json({
+    // ✅ Step 6: Return response
+    return res.status(200).json({
       token: appToken,
       user: {
         id: user._id,
@@ -191,8 +193,15 @@ export const loginWithGoogle = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[loginWithGoogle] Error during login:", err.response?.data || err.message);
-    res.status(401).json({ error: "Google login failed" });
+    console.error(
+      "[loginWithGoogle] ❌ Error:",
+      err.response?.data || err.message
+    );
+
+    return res.status(401).json({
+      error: "Google login failed",
+      details: err.response?.data || err.message,
+    });
   }
 };
 
@@ -295,59 +304,50 @@ export const requestPhotosScope = async (req, res) => {
 // Get Google Photos
 export const getGooglePhotos = async (req, res) => {
   try {
-    const user = await reelUser.findById(req.userId);
-    if (!user) return res.status(401).json({ error: "User not found" });
+    const userId = req.user.id;
+    console.log("[getGooglePhotos] Requested by user:", userId);
 
-    const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
-
-    // Step 1: Ensure Photos scope is granted
-    if (!user.grantedScopes?.includes(PHOTOS_SCOPE)) {
-      return res.status(403).json({
-        error: "Google Photos access required. Please grant permission again.",
-        needsScope: true,
-      });
+    const user = await reelUser.findById(userId);
+    if (!user || !user.googleAccessToken) {
+      console.error("[getGooglePhotos] Missing access token in DB");
+      return res.status(401).json({ error: "Google account not linked." });
     }
 
-    const fetchFromGoogle = async (token) => {
-      const photosRes = await axios.get(
-        "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
-        { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", } }
-      );
-      return photosRes.data;
-    };
+    const accessToken = user.googleAccessToken;
+    console.log("[getGooglePhotos] Access token starts with:", accessToken.slice(0, 25));
 
-    let accessToken = user.googleAccessToken;
-
+    // ✅ Step 1: Verify scopes attached to token
     try {
-      // Try fetching with current token
-      const data = await fetchFromGoogle(accessToken);
-      return res.json(data);
-    } catch (err) {
-      const status = err.response?.status;
-      const errorMessage = err.response?.data?.error?.message || "";
-
-      // Refresh token if expired or insufficient
-      if ((status === 401 || (status === 403 && errorMessage.includes("insufficient"))) && user.googleRefreshToken) {
-        const newAccessToken = await refreshGoogleAccessToken(user);
-
-        if (!newAccessToken) {
-          return res.status(403).json({
-            error: "Session expired or Photos scope missing. Please grant access again.",
-            needsScope: true,
-          });
-        }
-
-        // Retry with refreshed token
-        const data = await fetchFromGoogle(newAccessToken);
-        return res.json(data);
-      }
-
-      console.error("[getGooglePhotos API error]:", err.response?.data || err.message);
-      return res.status(500).json({ error: "Failed to fetch Google Photos" });
+      const verify = await axios.get(
+        `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${accessToken}`
+      );
+      console.log("[getGooglePhotos] Token scopes:", verify.data.scope);
+    } catch (verifyErr) {
+      console.warn("[getGooglePhotos] Could not verify token:", verifyErr.response?.data || verifyErr.message);
     }
+
+    // ✅ Step 2: Call Google Photos API
+    const response = await axios.get(
+      "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=30",
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+
+    console.log("[getGooglePhotos] Fetched items:", response.data.mediaItems?.length || 0);
+
+    return res.json({
+      success: true,
+      mediaItems: response.data.mediaItems || [],
+    });
   } catch (err) {
-    console.error("[getGooglePhotos fatal error]:", err.message);
-    return res.status(500).json({ error: "Server error fetching Google Photos" });
+    console.error("[getGooglePhotos fatal error]:", err.response?.data || err.message);
+
+    // ✅ Step 3: Return readable error to frontend
+    return res.status(500).json({
+      error: "Server error fetching Google Photos",
+      googleError: err.response?.data || err.message,
+    });
   }
 };
 
