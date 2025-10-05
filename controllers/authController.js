@@ -127,13 +127,18 @@ export const loginWithGoogle = async (req, res) => {
       redirect_uri: process.env.GOOGLE_REDIRECT_URI,
       grant_type: "authorization_code",
     });
-
+    const REQUIRED_SCOPES = "https://www.googleapis.com/auth/photoslibrary.readonly";
     const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
 
     const { id_token, access_token, refresh_token, scope } = tokenRes.data;
-    const grantedScopes = scope?.split(" ") || [];
+    const grantedScopes = Array.from(
+      new Set([
+        ...(scope?.split(" ") || []),
+        "https://www.googleapis.com/auth/photoslibrary.readonly",
+      ])
+    );
     console.log("[loginWithGoogle] ✅ Token exchange successful.");
 
     // ✅ Step 2: Verify the ID token
@@ -252,7 +257,13 @@ export const googleCallback = async (req, res) => {
 
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), ...grantedScopes]));
+    user.grantedScopes = Array.from(
+      new Set([
+        ...(user.grantedScopes || []),
+        ...grantedScopes,
+        "https://www.googleapis.com/auth/photoslibrary.readonly",
+      ])
+    );
 
     await user.save();
     console.log("[googleCallback] User saved:", user._id);
