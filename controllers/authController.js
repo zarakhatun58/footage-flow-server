@@ -201,7 +201,7 @@ export const requestPhotosScope = async (req, res) => {
     }
 
     const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(
-      process.env.GOOGLE_REDIRECT_URI + "/photos-callback"
+      process.env.GOOGLE_REDIRECT_URI
     )}&response_type=code&scope=${encodeURIComponent(
       PHOTOS_SCOPE
     )}&access_type=offline&prompt=consent&state=${user._id}`;
@@ -215,8 +215,6 @@ export const requestPhotosScope = async (req, res) => {
     res.status(500).json({ error: "Failed to build Google Photos scope URL" });
   }
 };
-
-
 
 
 export const googleCallback = async (req, res) => {
@@ -298,9 +296,6 @@ export const getGooglePhotos = async (req, res) => {
 };
 
 
-
-
-
 // Photos callback
 export const photosCallback = async (req, res) => {
   try {
@@ -310,7 +305,7 @@ export const photosCallback = async (req, res) => {
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: `${process.env.GOOGLE_REDIRECT_URI}/photos-callback`,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
       grant_type: "authorization_code",
     });
 
