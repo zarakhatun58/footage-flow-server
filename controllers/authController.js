@@ -19,57 +19,84 @@ const signToken = (user) => {
 };
 
 
-
-
-// Refresh Google access token
 // Refresh Google access token (ensures Photos scope)
-export const refreshGoogleAccessToken = async (user) => {
-  if (!user.googleRefreshToken) return null;
+// export const refreshGoogleAccessToken = async (user) => {
+//   if (!user.googleRefreshToken) return null;
 
+//   try {
+//     const body = new URLSearchParams({
+//       client_id: process.env.GOOGLE_CLIENT_ID,
+//       client_secret: process.env.GOOGLE_CLIENT_SECRET,
+//       refresh_token: user.googleRefreshToken,
+//       grant_type: "refresh_token",
+//     });
+
+//     const res = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
+//       headers: { "Content-Type": "application/x-www-form-urlencoded" },
+//     });
+
+//     const { access_token } = res.data;
+//     if (!access_token) {
+//       console.warn("[refreshGoogleAccessToken] No access_token returned");
+//       return null;
+//     }
+
+//     // Verify scopes on the refreshed token
+//     const tokenInfo = await getTokenInfo(access_token);
+//     const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
+//     const tokenScopesStr = tokenInfo?.scope || "";
+
+//     if (!tokenScopesStr.includes(PHOTOS_SCOPE)) {
+//       console.warn("[refreshGoogleAccessToken] Refreshed token missing Photos scope:", tokenScopesStr);
+//       // Remove invalid token so frontend triggers re-consent
+//       user.googleAccessToken = null;
+//       await user.save();
+//       return null;
+//     }
+
+//     // Save valid token
+//     user.googleAccessToken = access_token;
+//     await user.save();
+//     console.log("[refreshGoogleAccessToken] Updated user token:", user._id);
+
+//     return access_token;
+//   } catch (err) {
+//     console.error("[refreshGoogleAccessToken] Error:", err.response?.data || err.message);
+//     return null;
+//   }
+// };
+
+export const refreshGoogleAccessToken = async (req, res) => {
   try {
-    const body = new URLSearchParams({
+    const user = await reelUser.findById(req.userId);
+    if (!user?.googleRefreshToken) {
+      return res.status(401).json({ error: "No Google refresh token found" });
+    }
+
+    const params = new URLSearchParams({
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      refresh_token: user.googleRefreshToken,
       grant_type: "refresh_token",
+      refresh_token: user.googleRefreshToken,
     });
 
-    const res = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    });
+    const { data } = await axios.post("https://oauth2.googleapis.com/token", params);
 
-    const { access_token } = res.data;
-    if (!access_token) {
-      console.warn("[refreshGoogleAccessToken] No access_token returned");
-      return null;
+    if (!data.access_token) {
+      return res.status(400).json({ error: "Failed to refresh Google token" });
     }
 
-    // Verify scopes on the refreshed token
-    const tokenInfo = await getTokenInfo(access_token);
-    const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
-    const tokenScopesStr = tokenInfo?.scope || "";
-
-    if (!tokenScopesStr.includes(PHOTOS_SCOPE)) {
-      console.warn("[refreshGoogleAccessToken] Refreshed token missing Photos scope:", tokenScopesStr);
-      // Remove invalid token so frontend triggers re-consent
-      user.googleAccessToken = null;
-      await user.save();
-      return null;
-    }
-
-    // Save valid token
-    user.googleAccessToken = access_token;
+    user.googleAccessToken = data.access_token;
     await user.save();
-    console.log("[refreshGoogleAccessToken] Updated user token:", user._id);
 
-    return access_token;
+    console.log("✅ Refreshed Google token for:", user.email);
+
+    return res.json({ accessToken: data.access_token });
   } catch (err) {
-    console.error("[refreshGoogleAccessToken] Error:", err.response?.data || err.message);
-    return null;
+    console.error("Error refreshing Google token:", err.message);
+    return res.status(500).json({ error: "Failed to refresh Google token" });
   }
 };
-
-
 
 // Get token info
 const getTokenInfo = async (accessToken) => {
@@ -312,55 +339,7 @@ export const requestPhotosScope = async (req, res) => {
 };
 
 
-// Get Google Photos
-// export const getGooglePhotos = async (req, res) => {
-//   try {
-//     const userId = req.userId;
-//     console.log("[getGooglePhotos] Requested by user:", userId);
 
-//     const user = await reelUser.findById(userId);
-//     if (!user || !user.googleAccessToken) {
-//       console.error("[getGooglePhotos] Missing access token in DB");
-//       return res.status(401).json({ error: "Google account not linked." });
-//     }
-
-//     const accessToken = user.googleAccessToken;
-//     console.log("[getGooglePhotos] Access token starts with:", accessToken.slice(0, 25));
-
-//     // ✅ Step 1: Verify scopes attached to token
-//     try {
-//       const verify = await axios.get(
-//         `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${accessToken}`
-//       );
-//       console.log("[getGooglePhotos] Token scopes:", verify.data.scope);
-//     } catch (verifyErr) {
-//       console.warn("[getGooglePhotos] Could not verify token:", verifyErr.response?.data || verifyErr.message);
-//     }
-
-//     // ✅ Step 2: Call Google Photos API
-//     const response = await axios.get(
-//       "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=30",
-//       {
-//         headers: { Authorization: `Bearer ${accessToken}` },
-//       }
-//     );
-
-//     console.log("[getGooglePhotos] Fetched items:", response.data.mediaItems?.length || 0);
-
-//     return res.json({
-//       success: true,
-//       mediaItems: response.data.mediaItems || [],
-//     });
-//   } catch (err) {
-//     console.error("[getGooglePhotos fatal error]:", err.response?.data || err.message);
-
-//     // ✅ Step 3: Return readable error to frontend
-//     return res.status(500).json({
-//       error: "Server error fetching Google Photos",
-//       googleError: err.response?.data || err.message,
-//     });
-//   }
-// };
 
 export const googleCallback = async (req, res) => {
   try {
@@ -416,20 +395,48 @@ export const googleCallback = async (req, res) => {
 export const getGooglePhotos = async (req, res) => {
   try {
     const user = await reelUser.findById(req.userId);
-    if (!user || !user.googleAccessToken)
-      return res.status(401).json({ error: "Not authorized" });
+    if (!user?.googleAccessToken) {
+      return res.status(401).json({ error: "No Google access token found" });
+    }
 
     const response = await axios.get(
-      "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=10",
+      "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20",
       {
         headers: { Authorization: `Bearer ${user.googleAccessToken}` },
       }
     );
 
-    res.json(response.data);
+    return res.json({ mediaItems: response.data.mediaItems || [] });
   } catch (err) {
-    console.error("Error fetching Google Photos:", err.response?.data || err.message);
-    res.status(500).json({ error: "Failed to fetch Google Photos" });
+    console.error("❌ Failed to fetch Google Photos:", err.response?.data || err.message);
+
+    // 🔁 Handle expired/invalid access token (refresh automatically)
+    if (err.response?.status === 401) {
+      try {
+        const refreshParams = new URLSearchParams({
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          grant_type: "refresh_token",
+          refresh_token: (await reelUser.findById(req.userId)).googleRefreshToken,
+        });
+
+        const { data } = await axios.post("https://oauth2.googleapis.com/token", refreshParams);
+
+        const newAccessToken = data.access_token;
+        if (newAccessToken) {
+          await reelUser.findByIdAndUpdate(req.userId, { googleAccessToken: newAccessToken });
+          const retry = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20", {
+            headers: { Authorization: `Bearer ${newAccessToken}` },
+          });
+          return res.json({ mediaItems: retry.data.mediaItems || [] });
+        }
+      } catch (refreshErr) {
+        console.error("⚠️ Token refresh failed:", refreshErr.response?.data || refreshErr.message);
+        return res.status(401).json({ error: "Token expired. Please re-login." });
+      }
+    }
+
+    return res.status(500).json({ error: "Failed to fetch Google Photos" });
   }
 };
 
@@ -618,3 +625,54 @@ export const resetPassword = async (req, res) => {
     res.status(400).json({ error: 'Token invalid or expired' });
   }
 };
+
+
+// Get Google Photos
+// export const getGooglePhotos = async (req, res) => {
+//   try {
+//     const userId = req.userId;
+//     console.log("[getGooglePhotos] Requested by user:", userId);
+
+//     const user = await reelUser.findById(userId);
+//     if (!user || !user.googleAccessToken) {
+//       console.error("[getGooglePhotos] Missing access token in DB");
+//       return res.status(401).json({ error: "Google account not linked." });
+//     }
+
+//     const accessToken = user.googleAccessToken;
+//     console.log("[getGooglePhotos] Access token starts with:", accessToken.slice(0, 25));
+
+//     // ✅ Step 1: Verify scopes attached to token
+//     try {
+//       const verify = await axios.get(
+//         `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${accessToken}`
+//       );
+//       console.log("[getGooglePhotos] Token scopes:", verify.data.scope);
+//     } catch (verifyErr) {
+//       console.warn("[getGooglePhotos] Could not verify token:", verifyErr.response?.data || verifyErr.message);
+//     }
+
+//     // ✅ Step 2: Call Google Photos API
+//     const response = await axios.get(
+//       "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=30",
+//       {
+//         headers: { Authorization: `Bearer ${accessToken}` },
+//       }
+//     );
+
+//     console.log("[getGooglePhotos] Fetched items:", response.data.mediaItems?.length || 0);
+
+//     return res.json({
+//       success: true,
+//       mediaItems: response.data.mediaItems || [],
+//     });
+//   } catch (err) {
+//     console.error("[getGooglePhotos fatal error]:", err.response?.data || err.message);
+
+//     // ✅ Step 3: Return readable error to frontend
+//     return res.status(500).json({
+//       error: "Server error fetching Google Photos",
+//       googleError: err.response?.data || err.message,
+//     });
+//   }
+// };

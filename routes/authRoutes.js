@@ -22,24 +22,25 @@ router.get("/google-photos", protect, getGooglePhotos);
 router.get("/google-photos-scope", protect, requestPhotosScope);
 router.get("/photos-callback", photosCallback);
 
+router.get("/refresh-token", protect, refreshGoogleAccessToken);
 // --- Refresh Google Access Token ---
-router.post("/refresh-token", protect, async (req, res) => {
-  try {
-    const user = req.user;
-    if (!user) return res.status(401).json({ error: "User not found" });
+// router.post("/refresh-token", protect, async (req, res) => {
+//   try {
+//     const user = req.user;
+//     if (!user) return res.status(401).json({ error: "User not found" });
 
-    const newToken = await refreshGoogleAccessToken(user);
-    if (!newToken)
-      return res
-        .status(403)
-        .json({ error: "Failed to refresh token. Re-login required." });
+//     const newToken = await refreshGoogleAccessToken(user);
+//     if (!newToken)
+//       return res
+//         .status(403)
+//         .json({ error: "Failed to refresh token. Re-login required." });
 
-    res.json({ accessToken: newToken });
-  } catch (err) {
-    console.error("[refresh-token] Error:", err.message);
-    res.status(500).json({ error: "Server error refreshing token" });
-  }
-});
+//     res.json({ accessToken: newToken });
+//   } catch (err) {
+//     console.error("[refresh-token] Error:", err.message);
+//     res.status(500).json({ error: "Server error refreshing token" });
+//   }
+// });
 
 
 
