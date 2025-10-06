@@ -193,12 +193,12 @@ export const requestPhotosScope = async (req, res) => {
         hasPhotosScope: true,
       });
     }
-    const appToken = signToken(user);
+
     const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(
       process.env.GOOGLE_REDIRECT_URI + "/photos-callback"
     )}&response_type=code&scope=${encodeURIComponent(
       PHOTOS_SCOPE
-    )}&access_type=offline&prompt=consent&state=${appToken}`;
+    )}&access_type=offline&prompt=consent&state=${user._id}`;
 
     res.json({
       grantedScopes: user.grantedScopes || [],
@@ -300,7 +300,7 @@ export const photosCallback = async (req, res) => {
   try {
     const { code, state: userId } = req.query;
     if (!code || !userId) return res.status(400).send("Missing code or state");
-    const params = new URLSearchParams({
+    const params  = new URLSearchParams({
       code,
       client_id: process.env.GOOGLE_CLIENT_ID,
       client_secret: process.env.GOOGLE_CLIENT_SECRET,
@@ -308,7 +308,7 @@ export const photosCallback = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const { data } = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
+   const { data } = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" }
     });
 
