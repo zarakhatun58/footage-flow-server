@@ -192,6 +192,8 @@ export const requestPhotosScope = async (req, res) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
+    const REDIRECT_URI = "https://footage-flow-server.onrender.com/api/auth/photos-callback"; // ✅ Hardcoded redirect
+    const CLIENT_ID = "495282347288-bj7l1q7f0c5kbk23623sppibg1tml4dp.apps.googleusercontent.com"; // ✅ Hardcoded client_id
 
     if (user.grantedScopes?.includes(PHOTOS_SCOPE)) {
       return res.json({
@@ -200,8 +202,9 @@ export const requestPhotosScope = async (req, res) => {
       });
     }
 
-   const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${process.env.GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(
-      "https://footage-flow-server.onrender.com/api/auth/photos-callback"
+    // Build the Google OAuth URL
+    const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(
+      REDIRECT_URI
     )}&response_type=code&scope=${encodeURIComponent(
       PHOTOS_SCOPE
     )}&access_type=offline&prompt=consent&state=${user._id}`;
@@ -212,9 +215,11 @@ export const requestPhotosScope = async (req, res) => {
       url: oauthUrl,
     });
   } catch (err) {
+    console.error("[requestPhotosScope] Error:", err);
     res.status(500).json({ error: "Failed to build Google Photos scope URL" });
   }
 };
+
 
 
 export const googleCallback = async (req, res) => {
