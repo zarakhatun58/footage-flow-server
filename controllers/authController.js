@@ -213,44 +213,44 @@ export const requestPhotosScope = async (req, res) => {
   }
 };
 
-
-export const googleCallback = async (req, res) => {
+export const googleAuthCallback = async (req, res) => {
   try {
     const { code } = req.query;
-    if (!code) return res.status(400).send("Missing code");
 
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token",
-      new URLSearchParams({
-        code,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        redirect_uri: REDIRECT_URI,
-        grant_type: "authorization_code",
-      }).toString(),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", {
+      code,
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+      grant_type: "authorization_code",
+    });
+
+    const { access_token, refresh_token, id_token } = tokenRes.data;
+
+    // Decode user info from id_token
+    const userInfo = JSON.parse(
+      Buffer.from(id_token.split(".")[1], "base64").toString()
+    );
+    const { email, name, picture } = userInfo;
+
+    // Save or update user in DB
+    let user = await User.findOneAndUpdate(
+      { email },
+      { email, username: name, profilePic: picture, accessToken: access_token, refreshToken: refresh_token },
+      { new: true, upsert: true }
     );
 
-    const { id_token, access_token, refresh_token } = tokenRes.data;
-    const payload = JSON.parse(Buffer.from(id_token.split(".")[1], "base64").toString());
-    const { sub: googleId, email, name, picture } = payload;
+    // Sign JWT
+    const jwtToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: "7d",
+    });
 
-    let user = await reelUser.findOne({ email });
-    if (!user) {
-      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
-    } else if (!user.googleId) {
-      user.googleId = googleId;
-    }
-
-    user.googleAccessToken = access_token;
-    if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), ...REQUIRED_SCOPES]));
-    await user.save();
-
-    const appToken = signToken(user);
-    res.redirect(`${process.env.FRONTEND_URL}/gallery?token=${appToken}`);
+    // Redirect to frontend with token
+    const redirectURL = `https://footage-to-reel.onrender.com/gallery?token=${jwtToken}`;
+    res.redirect(redirectURL);
   } catch (err) {
-    console.error("[googleCallback] ❌", err.response?.data || err.message);
-    res.status(500).send("Google login failed");
+    console.error("[googleAuthCallback] ❌", err.response?.data || err);
+    res.status(500).send("Google authentication failed.");
   }
 };
 
