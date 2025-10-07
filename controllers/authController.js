@@ -5,17 +5,20 @@ import { sendEmail } from '../utils/sendEmail.js';
 import { OAuth2Client } from 'google-auth-library';
 import axios from 'axios';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'secret';
-const client = new OAuth2Client(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
+// const client = new OAuth2Client(
+//   process.env.GOOGLE_CLIENT_ID,
+//   process.env.GOOGLE_CLIENT_SECRET,
+//   process.env.GOOGLE_REDIRECT_URI
+// );
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "495282347288-bj7l1q7f0c5kbk23623sppibg1tml4dp.apps.googleusercontent.com";
+const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REDIRECT_URI = "https://footage-flow-server.onrender.com/api/auth/photos-callback";
+const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI; // Only one redirect
 const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
+
+const client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 
 // Helper: sign JWT with consistent payload
 const signToken = (user) => {
@@ -23,29 +26,18 @@ const signToken = (user) => {
   return jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
 };
 
-export const refreshGoogleAccessToken = async (req, res) => {
-  try {
-    const userId = req.userId;
-    const user = await reelUser.findById(userId);
-    if (!user?.googleRefreshToken)
-      return res.status(400).json({ error: "No Google refresh token found" });
-
-    const params = new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      grant_type: "refresh_token",
-      refresh_token: user.googleRefreshToken,
-    });
-
-    const { data } = await axios.post("https://oauth2.googleapis.com/token", params);
-    user.googleAccessToken = data.access_token;
-    await user.save();
-
-    return res.json({ accessToken: data.access_token });
-  } catch (error) {
-    console.error("[refreshGoogleAccessToken] Error:", error.message);
-    return res.status(500).json({ error: "Failed to refresh Google token" });
-  }
+export const refreshGoogleAccessToken = async (user) => {
+  if (!user.googleRefreshToken) throw new Error("No Google refresh token found");
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    grant_type: "refresh_token",
+    refresh_token: user.googleRefreshToken,
+  });
+  const { data } = await axios.post("https://oauth2.googleapis.com/token", params);
+  user.googleAccessToken = data.access_token;
+  await user.save();
+  return data.access_token;
 };
 
 
@@ -215,57 +207,54 @@ export const requestPhotosScope = async (req, res) => {
 };
 
 
-
-
 export const googleCallback = async (req, res) => {
   try {
     const { code } = req.query;
+    if (!code) return res.status(400).send("Missing code");
 
-    const tokenRes = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      new URLSearchParams({
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: process.env.GOOGLE_REDIRECT_URI,
-        grant_type: "authorization_code",
-      }),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
-
-    const { access_token, id_token } = tokenRes.data;
-
-    // Decode ID token to get user info
-    const userInfo = JSON.parse(
-      Buffer.from(id_token.split(".")[1], "base64").toString()
-    );
-
-    let user = await reelUser.findOne({ email: userInfo.email });
-    if (!user) {
-      user = await reelUser.create({
-        email: userInfo.email,
-        username: userInfo.name,
-        profilePic: userInfo.picture,
-        googleAccessToken: access_token,
-      });
-    } else {
-      user.googleAccessToken = access_token;
-      await user.save();
-    }
-
-    const appToken = jwt.sign({ userId: user._id }, JWT_SECRET, {
-      expiresIn: "7d",
+    // Exchange code for tokens with Photos scope
+    const params = new URLSearchParams({
+      code,
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      redirect_uri: REDIRECT_URI,
+      grant_type: "authorization_code",
     });
 
-    // redirect to frontend with token
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/gallery?token=${appToken}`
-    );
+    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    });
+
+    const { access_token, refresh_token, id_token } = tokenRes.data;
+
+    // Decode ID token to get user info
+    const payload = JSON.parse(Buffer.from(id_token.split(".")[1], "base64").toString());
+    const { email, name, picture, sub: googleId } = payload;
+
+    // Find or create user
+    let user = await reelUser.findOne({ email });
+    if (!user) {
+      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+    } else if (!user.googleId) {
+      user.googleId = googleId;
+    }
+
+    // Save tokens + Photos scope
+    user.googleAccessToken = access_token;
+    if (refresh_token) user.googleRefreshToken = refresh_token;
+    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), PHOTOS_SCOPE]));
+    await user.save();
+
+    // Sign JWT for frontend
+    const appToken = signToken(user);
+
+    return res.redirect(`${process.env.FRONTEND_URL}/gallery?token=${appToken}`);
   } catch (err) {
-    console.error("Google login failed:", err.response?.data || err.message);
+    console.error("[googleCallback] Error:", err.response?.data || err.message);
     res.status(500).send("Google login failed");
   }
 };
+
 
 // 2️⃣ Get Google Photos (simple)
 export const getGooglePhotos = async (req, res) => {
@@ -273,15 +262,15 @@ export const getGooglePhotos = async (req, res) => {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Refresh access token if expired
+    // Refresh token if needed
     if (!user.googleAccessToken && user.googleRefreshToken) {
-      user.googleAccessToken = await refreshGoogleAccessToken(req, res);
+      user.googleAccessToken = await refreshGoogleAccessToken(user);
     }
 
     if (!user.googleAccessToken) return res.status(401).json({ error: "No Google access token found" });
     if (!user.grantedScopes?.includes(PHOTOS_SCOPE)) return res.status(403).json({ error: "Missing Google Photos scope" });
 
-    const response = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20", {
+    const response = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=50", {
       headers: { Authorization: `Bearer ${user.googleAccessToken}` },
     });
 
