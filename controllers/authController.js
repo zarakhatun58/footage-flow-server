@@ -213,13 +213,12 @@ export const requestPhotosScope = async (req, res) => {
   }
 };
 
-
 export const googleCallback = async (req, res) => {
   try {
     const { code } = req.query;
-    if (!code) return res.status(400).send("Missing code");
+    if (!code) return res.status(400).send("Missing authorization code");
 
-    // Exchange code for tokens with Photos scope
+    // Exchange code for tokens with full scopes
     const params = new URLSearchParams({
       code,
       client_id: CLIENT_ID,
@@ -228,20 +227,29 @@ export const googleCallback = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" }
-    });
+    const { data } = await axios.post(
+      "https://oauth2.googleapis.com/token",
+      params.toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
 
-    const { access_token, refresh_token, id_token } = tokenRes.data;
+    const { access_token, refresh_token, id_token, scope } = data;
 
-    // Decode ID token to get user info
-    const payload = JSON.parse(Buffer.from(id_token.split(".")[1], "base64").toString());
+    // Decode ID token → get user info
+    const payload = JSON.parse(
+      Buffer.from(id_token.split(".")[1], "base64").toString()
+    );
     const { email, name, picture, sub: googleId } = payload;
 
     // Find or create user
     let user = await reelUser.findOne({ email });
     if (!user) {
-      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+      user = await reelUser.create({
+        googleId,
+        email,
+        username: name,
+        profilePic: picture,
+      });
     } else if (!user.googleId) {
       user.googleId = googleId;
     }
@@ -249,18 +257,28 @@ export const googleCallback = async (req, res) => {
     // Save tokens + Photos scope
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), PHOTOS_SCOPE]));
+
+    const grantedScopes = new Set([
+      ...(user.grantedScopes || []),
+      ...(scope?.split(" ") || []),
+      PHOTOS_SCOPE,
+    ]);
+    user.grantedScopes = Array.from(grantedScopes);
     await user.save();
 
-    // Sign JWT for frontend
+    // Sign app JWT
     const appToken = signToken(user);
 
-    return res.redirect(`${process.env.FRONTEND_URL}/gallery?token=${appToken}`);
+    // Redirect frontend
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/gallery?token=${appToken}`
+    );
   } catch (err) {
-    console.error("[googleCallback] Error:", err.response?.data || err.message);
+    console.error("[googleCallback] ❌", err.response?.data || err.message);
     res.status(500).send("Google login failed");
   }
 };
+
 
 
 // 2️⃣ Get Google Photos (simple)
@@ -269,24 +287,31 @@ export const getGooglePhotos = async (req, res) => {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // Refresh token if needed
+    // Refresh access token if expired
     if (!user.googleAccessToken && user.googleRefreshToken) {
+      console.log("[getGooglePhotos] Refreshing access token...");
       user.googleAccessToken = await refreshGoogleAccessToken(user);
     }
 
-    if (!user.googleAccessToken) return res.status(401).json({ error: "No Google access token found" });
-    if (!user.grantedScopes?.includes(PHOTOS_SCOPE)) return res.status(403).json({ error: "Missing Google Photos scope" });
+    if (!user.googleAccessToken)
+      return res.status(401).json({ error: "Missing Google access token" });
 
-    const response = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=50", {
-      headers: { Authorization: `Bearer ${user.googleAccessToken}` },
-    });
+    // Fetch Google Photos
+    const response = await axios.get(
+      "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=50",
+      { headers: { Authorization: `Bearer ${user.googleAccessToken}` } }
+    );
 
+    console.log("[getGooglePhotos] ✅ Photos fetched:", response.data.mediaItems?.length || 0);
     return res.json({ mediaItems: response.data.mediaItems || [] });
   } catch (err) {
-    console.error("[getGooglePhotos] Error:", err.response?.data || err.message);
-    return res.status(err.response?.status || 500).json({ error: "Failed to fetch Google Photos" });
+    console.error("[getGooglePhotos] ❌", err.response?.data || err.message);
+    res
+      .status(err.response?.status || 500)
+      .json({ error: "Failed to fetch Google Photos" });
   }
 };
+
 
 
 // Photos callback
