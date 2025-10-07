@@ -301,6 +301,7 @@ export const getGooglePhotos = async (req, res) => {
       "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=50",
       { headers: { Authorization: `Bearer ${user.googleAccessToken}` } }
     );
+    console.log("[getGooglePhotos] Access token:", user.googleAccessToken?.slice(0, 10), "...scope:", user.grantedScopes);
 
     console.log("[getGooglePhotos] ✅ Photos fetched:", response.data.mediaItems?.length || 0);
     return res.json({ mediaItems: response.data.mediaItems || [] });
