@@ -12,6 +12,11 @@ const client = new OAuth2Client(
   process.env.GOOGLE_REDIRECT_URI
 );
 
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "495282347288-bj7l1q7f0c5kbk23623sppibg1tml4dp.apps.googleusercontent.com";
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const REDIRECT_URI = "https://footage-flow-server.onrender.com/api/auth/photos-callback";
+const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
+
 // Helper: sign JWT with consistent payload
 const signToken = (user) => {
   console.log("[signToken] Signing JWT for user:", user._id);
@@ -191,34 +196,24 @@ export const requestPhotosScope = async (req, res) => {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
-    const REDIRECT_URI = "https://footage-flow-server.onrender.com/api/auth/photos-callback"; // ✅ Hardcoded redirect
-    const CLIENT_ID = "495282347288-bj7l1q7f0c5kbk23623sppibg1tml4dp.apps.googleusercontent.com"; // ✅ Hardcoded client_id
-
     if (user.grantedScopes?.includes(PHOTOS_SCOPE)) {
-      return res.json({
-        grantedScopes: user.grantedScopes,
-        hasPhotosScope: true,
-      });
+      return res.json({ grantedScopes: user.grantedScopes, hasPhotosScope: true });
     }
 
-    // Build the Google OAuth URL
+    // Build Google OAuth URL
     const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(
       REDIRECT_URI
     )}&response_type=code&scope=${encodeURIComponent(
       PHOTOS_SCOPE
     )}&access_type=offline&prompt=consent&state=${user._id}`;
 
-    res.json({
-      grantedScopes: user.grantedScopes || [],
-      hasPhotosScope: false,
-      url: oauthUrl,
-    });
+    res.json({ grantedScopes: user.grantedScopes || [], hasPhotosScope: false, url: oauthUrl });
   } catch (err) {
     console.error("[requestPhotosScope] Error:", err);
     res.status(500).json({ error: "Failed to build Google Photos scope URL" });
   }
 };
+
 
 
 
@@ -278,15 +273,13 @@ export const getGooglePhotos = async (req, res) => {
     const user = await reelUser.findById(req.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
+    // Refresh access token if expired
     if (!user.googleAccessToken && user.googleRefreshToken) {
-      user.googleAccessToken = await refreshGoogleAccessToken(user._id);
+      user.googleAccessToken = await refreshGoogleAccessToken(req, res);
     }
 
     if (!user.googleAccessToken) return res.status(401).json({ error: "No Google access token found" });
-
-    if (!user.grantedScopes?.includes("https://www.googleapis.com/auth/photoslibrary.readonly")) {
-      return res.status(403).json({ error: "Missing Google Photos scope" });
-    }
+    if (!user.grantedScopes?.includes(PHOTOS_SCOPE)) return res.status(403).json({ error: "Missing Google Photos scope" });
 
     const response = await axios.get("https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=20", {
       headers: { Authorization: `Bearer ${user.googleAccessToken}` },
@@ -295,8 +288,7 @@ export const getGooglePhotos = async (req, res) => {
     return res.json({ mediaItems: response.data.mediaItems || [] });
   } catch (err) {
     console.error("[getGooglePhotos] Error:", err.response?.data || err.message);
-    const status = err.response?.status || 500;
-    return res.status(status).json({ error: "Failed to fetch Google Photos" });
+    return res.status(err.response?.status || 500).json({ error: "Failed to fetch Google Photos" });
   }
 };
 
@@ -306,16 +298,17 @@ export const photosCallback = async (req, res) => {
   try {
     const { code, state: userId } = req.query;
     if (!code || !userId) return res.status(400).send("Missing code or state");
-    const params  = new URLSearchParams({
+
+    const params = new URLSearchParams({
       code,
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: "https://footage-flow-server.onrender.com/api/auth/photos-callback",
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      redirect_uri: REDIRECT_URI,
       grant_type: "authorization_code",
     });
 
-   const { data } = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    const { data } = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
 
     const { access_token, refresh_token } = data;
@@ -323,9 +316,10 @@ export const photosCallback = async (req, res) => {
     const user = await reelUser.findById(userId);
     if (!user) return res.status(404).send("User not found");
 
+    // Save tokens and granted scope
     user.googleAccessToken = access_token;
     user.googleRefreshToken = refresh_token;
-    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), "https://www.googleapis.com/auth/photoslibrary.readonly"]));
+    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), PHOTOS_SCOPE]));
     await user.save();
 
     const appToken = signToken(user);
