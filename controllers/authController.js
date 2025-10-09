@@ -217,7 +217,8 @@ export const googleCallback = async (req, res) => {
   try {
     const { code } = req.query;
     if (!code) return res.status(400).send("Missing authorization code");
-
+    console.log("[googleCallback] 🔹 Code:", req.query.code);
+    console.log("[googleCallback] 🔹 Redirect URI being sent:", REDIRECT_URI);
     // Exchange code for tokens with full scopes
     const params = new URLSearchParams({
       code,
