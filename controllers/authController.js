@@ -272,6 +272,8 @@ export const googleCallback = async (req, res) => {
       client_secret: CLIENT_SECRET,
       redirect_uri: REDIRECT_URI,
       grant_type: "authorization_code",
+      // 🟢 ADD THIS LINE BELOW — ensure Photos scope is included
+      scope: "openid profile email https://www.googleapis.com/auth/photoslibrary.readonly",
     });
 
     const { data } = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
@@ -316,6 +318,7 @@ export const googleCallback = async (req, res) => {
     res.status(500).send("Google login failed");
   }
 };
+
 
 
 // 2️⃣ Get Google Photos (simple)
