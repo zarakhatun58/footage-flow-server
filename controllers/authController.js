@@ -213,12 +213,59 @@ export const requestPhotosScope = async (req, res) => {
   }
 };
 
+// export const googleCallback = async (req, res) => {
+//   try {
+//     const { code } = req.query;
+//     if (!code) return res.status(400).send("Missing code");
+
+//     // Exchange code for tokens with Photos scope
+//     const params = new URLSearchParams({
+//       code,
+//       client_id: CLIENT_ID,
+//       client_secret: CLIENT_SECRET,
+//       redirect_uri: REDIRECT_URI,
+//       grant_type: "authorization_code",
+//     });
+
+//     const tokenRes = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
+//       headers: { "Content-Type": "application/x-www-form-urlencoded" }
+//     });
+
+//     const { access_token, refresh_token, id_token } = tokenRes.data;
+
+//     // Decode ID token to get user info
+//     const payload = JSON.parse(Buffer.from(id_token.split(".")[1], "base64").toString());
+//     const { email, name, picture, sub: googleId } = payload;
+
+//     // Find or create user
+//     let user = await reelUser.findOne({ email });
+//     if (!user) {
+//       user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+//     } else if (!user.googleId) {
+//       user.googleId = googleId;
+//     }
+
+//     // Save tokens + Photos scope
+//     user.googleAccessToken = access_token;
+//     if (refresh_token) user.googleRefreshToken = refresh_token;
+//     user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), PHOTOS_SCOPE]));
+//     await user.save();
+
+//     // Sign JWT for frontend
+//     const appToken = signToken(user);
+
+//     return res.redirect(`${process.env.FRONTEND_URL}/gallery?token=${appToken}`);
+//   } catch (err) {
+//     console.error("[googleCallback] Error:", err.response?.data || err.message);
+//     res.status(500).send("Google login failed");
+//   }
+// };
+
 export const googleCallback = async (req, res) => {
   try {
     const { code } = req.query;
     if (!code) return res.status(400).send("Missing code");
 
-    // Exchange code for tokens with Photos scope
     const params = new URLSearchParams({
       code,
       client_id: CLIENT_ID,
@@ -227,11 +274,11 @@ export const googleCallback = async (req, res) => {
       grant_type: "authorization_code",
     });
 
-    const tokenRes = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
-      headers: { "Content-Type": "application/x-www-form-urlencoded" }
+    const { data } = await axios.post("https://oauth2.googleapis.com/token", params.toString(), {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
 
-    const { access_token, refresh_token, id_token } = tokenRes.data;
+    const { access_token, refresh_token, id_token } = data;
 
     // Decode ID token to get user info
     const payload = JSON.parse(Buffer.from(id_token.split(".")[1], "base64").toString());
@@ -240,27 +287,35 @@ export const googleCallback = async (req, res) => {
     // Find or create user
     let user = await reelUser.findOne({ email });
     if (!user) {
-      user = await reelUser.create({ googleId, email, username: name, profilePic: picture });
+      user = await reelUser.create({
+        googleId,
+        email,
+        username: name,
+        profilePic: picture,
+      });
     } else if (!user.googleId) {
       user.googleId = googleId;
     }
 
-    // Save tokens + Photos scope
+    // Always include Photos scope
     user.googleAccessToken = access_token;
     if (refresh_token) user.googleRefreshToken = refresh_token;
-    user.grantedScopes = Array.from(new Set([...(user.grantedScopes || []), PHOTOS_SCOPE]));
+
+    user.grantedScopes = Array.from(
+      new Set([...(user.grantedScopes || []), "https://www.googleapis.com/auth/photoslibrary.readonly"])
+    );
+
     await user.save();
 
-    // Sign JWT for frontend
     const appToken = signToken(user);
 
+    // Redirect to gallery after login with token
     return res.redirect(`${process.env.FRONTEND_URL}/gallery?token=${appToken}`);
   } catch (err) {
     console.error("[googleCallback] Error:", err.response?.data || err.message);
     res.status(500).send("Google login failed");
   }
 };
-
 
 
 // 2️⃣ Get Google Photos (simple)
