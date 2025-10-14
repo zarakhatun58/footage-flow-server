@@ -16,7 +16,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI; // Only one redirect
-const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
+const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly";
 const REQUIRED_SCOPES = [
   "openid",
   "email",
@@ -28,7 +28,7 @@ const client = new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 
 // Helper: sign JWT with consistent payload
 const signToken = (user) => {
-  console.log("[signToken] Signing JWT for user:", user._id);
+  console.log("[signToken] Signing JWT for user:", user._id); 
   return jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
 };
 
@@ -104,7 +104,7 @@ export const loginWithGoogle = async (req, res) => {
       redirect_uri: process.env.GOOGLE_REDIRECT_URI,
       grant_type: "authorization_code",
     });
-    const REQUIRED_SCOPES = "https://www.googleapis.com/auth/photoslibrary.readonly";
+    const REQUIRED_SCOPES = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly";
     const tokenRes = await axios.post("https://oauth2.googleapis.com/token", body.toString(), {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
     });
@@ -152,7 +152,7 @@ export const loginWithGoogle = async (req, res) => {
     const allScopes = new Set([
       ...(user.grantedScopes || []),
       ...grantedScopes,
-      "https://www.googleapis.com/auth/photoslibrary.readonly",
+      "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
     ]);
     user.grantedScopes = Array.from(allScopes);
 
@@ -308,7 +308,7 @@ export const googleCallback = async (req, res) => {
     user.grantedScopes = Array.from(
       new Set([
         ...(user.grantedScopes || []),
-        "https://www.googleapis.com/auth/photoslibrary.readonly",
+        "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
       ])
     );
 
@@ -571,7 +571,7 @@ export const resetPassword = async (req, res) => {
 
 //     // Verify scopes on the refreshed token
 //     const tokenInfo = await getTokenInfo(access_token);
-//     const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photoslibrary.readonly";
+//     const PHOTOS_SCOPE = "https://www.googleapis.com/auth/photospicker.mediaitems.readonly";
 //     const tokenScopesStr = tokenInfo?.scope || "";
 
 //     if (!tokenScopesStr.includes(PHOTOS_SCOPE)) {
@@ -645,7 +645,7 @@ export const resetPassword = async (req, res) => {
 //       new Set([
 //         ...(user.grantedScopes || []),
 //         ...grantedScopes,
-//         "https://www.googleapis.com/auth/photoslibrary.readonly",
+//         "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
 //       ])
 //     );
 
